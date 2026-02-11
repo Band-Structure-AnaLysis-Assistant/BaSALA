@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.widgets import SpanSelector
 from scipy.optimize import curve_fit
+from scipy.integrate import simpson
 import os
 
 # 設定
@@ -16,11 +17,80 @@ ctk.set_default_color_theme("dark-blue")
 def linear_func(x, a, b):
     return a * x + b
 
+def calculate_shirley_bg(x, y, tol=1e-5, max_iters=50):
+    """
+    Shirleyバックグラウンドを計算する関数
+    x: Binding Energy (これを使ってソートする)
+    y: Intensity
+    """
+    # 1. データのソート (計算のため低エネルギー -> 高エネルギーの順にする)
+    # XPSは結合エネルギーが大きいほうが左(散乱成分多い)なので、
+    # 積分は「結合エネルギーが低いほう(右)」から「高いほう(左)」へ累積する
+    
+    sorted_indices = np.argsort(x)
+    x_sorted = x[sorted_indices]
+    y_sorted = y[sorted_indices]
+    
+    n = len(y)
+    bg = np.zeros(n)
+    
+    # 両端の強度
+    I_start = y_sorted[0]  # Low BE side (Right) -> Background is low
+    I_end = y_sorted[-1]   # High BE side (Left) -> Background is high
+    
+    # 初期推定: 直線
+    # bg = I_start + (I_end - I_start) * (x_sorted - x_sorted[0]) / (x_sorted[-1] - x_sorted[0])
+    
+    # 反復計算
+    # B(E) = I_start + k * int_{E_min}^{E} (I(E') - I_start) dE'
+    # 積分範囲は 低BE(右) から 対象エネルギー まで
+    
+    # 全体の面積 (I(E) - I_start)
+    total_area = np.trapz(y_sorted - I_start, x_sorted)
+    
+    for _ in range(max_iters):
+        bg_new = np.zeros(n)
+        
+        # 累積積分 (Cumulative Trapezoidal Integration)
+        # 各点までの面積を計算
+        # cumtrapz的な処理
+        # I(E) - I_start ではなく、I(E) - B_old(E) を使うのが本来だが
+        # 簡易実装として I(E) - I_start の割合で I_diff を配分する形が一般的
+        
+        diff_array = y_sorted - I_start
+        # 負の値はクリップ
+        diff_array[diff_array < 0] = 0
+        
+        cum_area = np.zeros(n)
+        cum_area[1:] = np.cumsum((diff_array[:-1] + diff_array[1:]) / 2 * np.diff(x_sorted))
+        
+        # バックグラウンドの形状更新
+        # 右端(I_start) + (左端と右端の差) * (その地点までの累積面積 / 全面積)
+        if total_area == 0:
+            k = 0
+        else:
+            k = (I_end - I_start) / cum_area[-1]
+            
+        bg_new = I_start + k * cum_area
+        
+        # 収束判定
+        if np.max(np.abs(bg_new - bg)) < tol:
+            bg = bg_new
+            break
+            
+        bg = bg_new
+
+    # 元の順序に戻す
+    bg_original_order = np.zeros(n)
+    bg_original_order[sorted_indices] = bg
+    
+    return bg_original_order
+
 class XPS_VB_Edge_App(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("XPS VB Edge Analyzer (Phase 1) - v0.5 (Graph Editor)")
+        self.title("XPS VB Edge Analyzer (Phase 1) - v0.6 (Shirley BG)")
         self.geometry("1200x900")
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -29,6 +99,8 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.df = None
         self.energy = None
         self.intensity = None
+        self.intensity_corrected = None # Shirley適用後のデータ
+        self.bg_data = None # 計算されたShirleyカーブ
         
         # ツール変数
         self.span = None 
@@ -43,18 +115,18 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.sidebar.pack(side="left", fill="y", padx=0, pady=0)
 
         # ロゴ
-        self.logo_label = ctk.CTkLabel(self.sidebar, text="XPS Analyzer\nv0.5", font=ctk.CTkFont(size=24, weight="bold"))
+        self.logo_label = ctk.CTkLabel(self.sidebar, text="XPS Analyzer\nv0.6", font=ctk.CTkFont(size=24, weight="bold"))
         self.logo_label.pack(padx=20, pady=(20, 10))
 
-        # ★ タブビューの作成 (ここで機能を分ける)
+        # ★ タブビュー
         self.tabview = ctk.CTkTabview(self.sidebar, width=300)
         self.tabview.pack(padx=10, pady=10, fill="both", expand=True)
         
-        self.tab_analysis = self.tabview.add("Analysis")  # 解析用タブ
-        self.tab_graph = self.tabview.add("Graph Settings") # グラフ設定用タブ
+        self.tab_analysis = self.tabview.add("Analysis")
+        self.tab_graph = self.tabview.add("Graph Settings")
 
         # ==========================================
-        # Tab 1: Analysis (解析機能)
+        # Tab 1: Analysis
         # ==========================================
         
         # Step 1: Import
@@ -69,13 +141,18 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.sep_option.set(", (Comma)")
         self.sep_option.pack(padx=5, pady=(0, 5))
 
+        # ★ Shirley Checkbox
+        self.chk_shirley_var = ctk.BooleanVar(value=False)
+        self.chk_shirley = ctk.CTkCheckBox(self.tab_analysis, text="Apply Shirley BG Subtraction", variable=self.chk_shirley_var, command=self.on_shirley_toggle)
+        self.chk_shirley.pack(padx=10, pady=(15, 5), anchor="w")
+
         # Step 2: Ranges
         self.step2_frame = ctk.CTkFrame(self.tab_analysis)
         self.step2_frame.pack(padx=5, pady=10, fill="x")
         ctk.CTkLabel(self.step2_frame, text="2. Fitting Ranges (eV)", font=("Roboto", 13, "bold")).pack(pady=2)
 
         # BG Range
-        ctk.CTkLabel(self.step2_frame, text="Background:", font=("Roboto", 11)).pack(anchor="w", padx=5)
+        ctk.CTkLabel(self.step2_frame, text="Background (Baseline):", font=("Roboto", 11)).pack(anchor="w", padx=5)
         self.bg_frame = ctk.CTkFrame(self.step2_frame, fg_color="transparent")
         self.bg_frame.pack(fill="x", padx=5)
         self.entry_bg_min = ctk.CTkEntry(self.bg_frame, width=50); self.entry_bg_min.pack(side="left")
@@ -106,10 +183,8 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.vbm_label.pack(pady=5)
 
         # ==========================================
-        # Tab 2: Graph Settings (見た目編集)
+        # Tab 2: Graph Settings
         # ==========================================
-        
-        # 1. Labels
         self.grp_labels = ctk.CTkFrame(self.tab_graph)
         self.grp_labels.pack(padx=5, pady=5, fill="x")
         ctk.CTkLabel(self.grp_labels, text="Labels & Title", font=("Roboto", 12, "bold")).pack(pady=2)
@@ -118,7 +193,6 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.entry_xlabel = ctk.CTkEntry(self.grp_labels, placeholder_text="X Label"); self.entry_xlabel.pack(fill="x", padx=5, pady=2)
         self.entry_ylabel = ctk.CTkEntry(self.grp_labels, placeholder_text="Y Label"); self.entry_ylabel.pack(fill="x", padx=5, pady=2)
         
-        # 2. Font Sizes
         self.grp_font = ctk.CTkFrame(self.tab_graph)
         self.grp_font.pack(padx=5, pady=5, fill="x")
         ctk.CTkLabel(self.grp_font, text="Font Sizes", font=("Roboto", 12, "bold")).pack(pady=2)
@@ -138,38 +212,33 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.entry_fs_tick = ctk.CTkEntry(self.font_frame, width=40); self.entry_fs_tick.grid(row=1, column=1, pady=5)
         self.entry_fs_tick.insert(0, "10")
 
-        # 3. Ranges (X, Y Limits)
         self.grp_range = ctk.CTkFrame(self.tab_graph)
         self.grp_range.pack(padx=5, pady=5, fill="x")
         ctk.CTkLabel(self.grp_range, text="Plot Range (Min / Max)", font=("Roboto", 12, "bold")).pack(pady=2)
         
-        # X Range
         self.range_x_frame = ctk.CTkFrame(self.grp_range, fg_color="transparent")
         self.range_x_frame.pack(fill="x", padx=5)
         ctk.CTkLabel(self.range_x_frame, text="X (eV):", width=40).pack(side="left")
         self.entry_xlim_min = ctk.CTkEntry(self.range_x_frame, width=50); self.entry_xlim_min.pack(side="left", padx=2)
         self.entry_xlim_max = ctk.CTkEntry(self.range_x_frame, width=50); self.entry_xlim_max.pack(side="left", padx=2)
 
-        # Y Range
         self.range_y_frame = ctk.CTkFrame(self.grp_range, fg_color="transparent")
         self.range_y_frame.pack(fill="x", padx=5, pady=5)
         ctk.CTkLabel(self.range_y_frame, text="Y (Int):", width=40).pack(side="left")
         self.entry_ylim_min = ctk.CTkEntry(self.range_y_frame, width=50); self.entry_ylim_min.pack(side="left", padx=2)
         self.entry_ylim_max = ctk.CTkEntry(self.range_y_frame, width=50); self.entry_ylim_max.pack(side="left", padx=2)
 
-        # Apply Button
-        self.btn_apply = ctk.CTkButton(self.tab_graph, text="Apply Settings", command=self.apply_graph_settings, fg_color="#E07A5F") # 目立つ色
+        self.btn_apply = ctk.CTkButton(self.tab_graph, text="Apply Settings", command=self.apply_graph_settings, fg_color="#E07A5F")
         self.btn_apply.pack(padx=10, pady=15, fill="x")
 
     def _create_main_area(self):
         self.main_frame = ctk.CTkFrame(self)
         self.main_frame.pack(side="right", fill="both", expand=True, padx=10, pady=10)
 
-        # グラフ初期化
         self.fig, self.ax = plt.subplots(figsize=(8, 6), dpi=100)
         self.ax.set_xlabel("Binding Energy (eV)")
         self.ax.set_ylabel("Intensity (a.u.)")
-        self.ax.invert_xaxis() # 初期状態でXPS設定
+        self.ax.invert_xaxis()
         
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.main_frame)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
@@ -178,12 +247,8 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.toolbar.update()
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
 
-    # --- 機能実装 ---
-
     def apply_graph_settings(self):
-        """グラフ設定タブの内容を反映させる"""
         try:
-            # 1. Title & Labels
             title = self.entry_title.get()
             xlabel = self.entry_xlabel.get()
             ylabel = self.entry_ylabel.get()
@@ -192,7 +257,6 @@ class XPS_VB_Edge_App(ctk.CTk):
             if xlabel: self.ax.set_xlabel(xlabel)
             if ylabel: self.ax.set_ylabel(ylabel)
 
-            # 2. Font Sizes
             fs_title = int(self.entry_fs_title.get())
             fs_label = int(self.entry_fs_label.get())
             fs_tick = int(self.entry_fs_tick.get())
@@ -202,41 +266,31 @@ class XPS_VB_Edge_App(ctk.CTk):
             self.ax.set_ylabel(self.ax.get_ylabel(), fontsize=fs_label)
             self.ax.tick_params(axis='both', which='major', labelsize=fs_tick)
 
-            # 3. Ranges (ここ重要：XPSはX軸が反転している)
             try:
                 x_min = float(self.entry_xlim_min.get())
                 x_max = float(self.entry_xlim_max.get())
-                # XPS慣習: 左が大きい値、右が小さい値
-                # ユーザーが自然に入力した min/max を、matplotlibの set_xlim(left, right) に適用する際、
-                # 反転させるために (max, min) の順に入れる
                 self.ax.set_xlim(x_max, x_min) 
-            except ValueError:
-                pass # 空欄なら無視
+            except ValueError: pass
 
             try:
                 y_min = float(self.entry_ylim_min.get())
                 y_max = float(self.entry_ylim_max.get())
                 self.ax.set_ylim(y_min, y_max)
-            except ValueError:
-                pass
+            except ValueError: pass
 
             self.canvas.draw()
-            
         except Exception as e:
-            messagebox.showerror("Settings Error", f"設定の反映に失敗しました:\n{e}")
+            messagebox.showerror("Settings Error", f"{e}")
 
     def activate_selector(self, mode):
         self.selection_mode = mode
         if self.span: self.span.set_visible(False); self.span = None
-
         color = 'blue' if mode == 'bg' else 'red'
         
         if mode == 'bg':
-            self.btn_sel_bg.configure(fg_color="#1f538d")
-            self.btn_sel_slope.configure(fg_color="gray")
+            self.btn_sel_bg.configure(fg_color="#1f538d"); self.btn_sel_slope.configure(fg_color="gray")
         else:
-            self.btn_sel_bg.configure(fg_color="gray")
-            self.btn_sel_slope.configure(fg_color="#c62828")
+            self.btn_sel_bg.configure(fg_color="gray"); self.btn_sel_slope.configure(fg_color="#c62828")
 
         self.span = SpanSelector(self.ax, self.on_select, 'horizontal', useblit=True,
                                  props=dict(alpha=0.3, facecolor=color), interactive=True, drag_from_anywhere=True)
@@ -245,8 +299,7 @@ class XPS_VB_Edge_App(ctk.CTk):
     def deactivate_selector(self):
         if self.span: self.span.set_visible(False); self.span = None
         self.selection_mode = None
-        self.btn_sel_bg.configure(fg_color="gray")
-        self.btn_sel_slope.configure(fg_color="gray")
+        self.btn_sel_bg.configure(fg_color="gray"); self.btn_sel_slope.configure(fg_color="gray")
         self.canvas.draw()
 
     def on_select(self, vmin, vmax):
@@ -258,62 +311,89 @@ class XPS_VB_Edge_App(ctk.CTk):
             self.entry_slope_min.delete(0, tk.END); self.entry_slope_min.insert(0, f"{min_val:.2f}")
             self.entry_slope_max.delete(0, tk.END); self.entry_slope_max.insert(0, f"{max_val:.2f}")
 
+    def on_shirley_toggle(self):
+        """Shirleyチェックボックスが押されたら再描画"""
+        if self.energy is None: return
+        
+        # チェックがついたら計算して表示
+        if self.chk_shirley_var.get():
+            try:
+                self.bg_data = calculate_shirley_bg(self.energy, self.intensity)
+                self.intensity_corrected = self.intensity - self.bg_data
+                
+                # グラフ更新
+                self.ax.clear()
+                # 生データは薄く
+                self.ax.plot(self.energy, self.intensity, color='gray', alpha=0.3, label='Raw Data')
+                # Shirley BG
+                self.ax.plot(self.energy, self.bg_data, color='gray', linestyle='--', alpha=0.5, label='Shirley BG')
+                # 補正後データ (メイン)
+                self.ax.plot(self.energy, self.intensity_corrected, color='#4a90e2', linewidth=1.5, label='Shirley Corrected')
+                
+                self.ax.legend()
+                self.ax.grid(True)
+                self.ax.invert_xaxis()
+                self.apply_graph_settings()
+                self.canvas.draw()
+            except Exception as e:
+                messagebox.showerror("Error", f"Shirley Calculation Failed:\n{e}")
+                self.chk_shirley_var.set(False)
+        else:
+            # 元に戻す
+            self.load_csv_redraw_only()
+
     def load_csv(self):
         file_path = filedialog.askopenfilename(filetypes=[("Data Files", "*.csv *.txt *.dat"), ("All Files", "*.*")])
         if not file_path: return
-
-        sep_map = {", (Comma)": ",", "\\t (Tab)": "\t", "Space": r"\s+"}
-        sep = sep_map[self.sep_option.get()]
+        sep = {", (Comma)": ",", "\\t (Tab)": "\t", "Space": r"\s+"}[self.sep_option.get()]
 
         try:
             self.df = pd.read_csv(file_path, sep=sep, header=None, engine='python')
-            if self.df.shape[1] < 2:
-                messagebox.showerror("Error", "データ列不足")
-                return
+            if self.df.shape[1] < 2: return
 
             self.energy = pd.to_numeric(self.df.iloc[:, 0], errors='coerce').values
             self.intensity = pd.to_numeric(self.df.iloc[:, 1], errors='coerce').values
             mask = ~np.isnan(self.energy) & ~np.isnan(self.intensity)
-            self.energy = self.energy[mask]
-            self.intensity = self.intensity[mask]
+            self.energy = self.energy[mask]; self.intensity = self.intensity[mask]
 
-            if len(self.energy) == 0:
-                messagebox.showerror("Error", "有効データなし")
-                return
+            if len(self.energy) == 0: return
 
-            # 初期パラメータ設定
+            # Reset params
             min_e = np.min(self.energy)
             self.entry_bg_min.delete(0, tk.END); self.entry_bg_min.insert(0, f"{min_e:.1f}")
             self.entry_bg_max.delete(0, tk.END); self.entry_bg_max.insert(0, f"{min_e+2.0:.1f}")
             self.entry_slope_min.delete(0, tk.END); self.entry_slope_min.insert(0, f"{min_e+3.0:.1f}")
             self.entry_slope_max.delete(0, tk.END); self.entry_slope_max.insert(0, f"{min_e+5.0:.1f}")
             
-            # Graph Settingsの初期値も埋める
-            fname = os.path.basename(file_path)
-            self.entry_title.delete(0, tk.END); self.entry_title.insert(0, f"XPS Spectrum: {fname}")
-            self.entry_xlabel.delete(0, tk.END); self.entry_xlabel.insert(0, "Binding Energy (eV)")
-            self.entry_ylabel.delete(0, tk.END); self.entry_ylabel.insert(0, "Intensity (a.u.)")
+            # Reset Shirley
+            self.chk_shirley_var.set(False)
+            self.intensity_corrected = None
+            self.bg_data = None
             
-            # Rangeの初期値
+            # Graph Info
+            fname = os.path.basename(file_path)
+            self.entry_title.delete(0, tk.END); self.entry_title.insert(0, f"XPS: {fname}")
+            
+            # Ranges
             self.entry_xlim_min.delete(0, tk.END); self.entry_xlim_min.insert(0, f"{np.min(self.energy):.1f}")
             self.entry_xlim_max.delete(0, tk.END); self.entry_xlim_max.insert(0, f"{np.max(self.energy):.1f}")
             self.entry_ylim_min.delete(0, tk.END); self.entry_ylim_min.insert(0, f"{np.min(self.intensity):.1f}")
             self.entry_ylim_max.delete(0, tk.END); self.entry_ylim_max.insert(0, f"{np.max(self.intensity):.1f}")
 
-            # 描画
-            self.ax.clear()
-            self.ax.plot(self.energy, self.intensity, color='#4a90e2', linewidth=1.5, label='Raw Spectrum')
-            self.ax.legend()
-            self.ax.grid(True)
-            self.ax.invert_xaxis() # 軸反転
-            
-            # 設定を反映
-            self.apply_graph_settings()
-            
+            self.load_csv_redraw_only()
             self.calc_btn.configure(state="normal")
             
         except Exception as e:
-            messagebox.showerror("Error", f"Read Error:\n{e}")
+            messagebox.showerror("Error", f"{e}")
+
+    def load_csv_redraw_only(self):
+        self.ax.clear()
+        self.ax.plot(self.energy, self.intensity, color='#4a90e2', linewidth=1.5, label='Raw Spectrum')
+        self.ax.legend()
+        self.ax.grid(True)
+        self.ax.invert_xaxis()
+        self.apply_graph_settings()
+        self.canvas.draw()
 
     def calculate(self):
         if self.energy is None: return
@@ -323,14 +403,22 @@ class XPS_VB_Edge_App(ctk.CTk):
             slope_start = float(self.entry_slope_min.get())
             slope_end = float(self.entry_slope_max.get())
 
-            # 解析
+            # ★ ShirleyがONなら補正後データを使う
+            if self.chk_shirley_var.get() and self.intensity_corrected is not None:
+                target_intensity = self.intensity_corrected
+                plot_color = '#4a90e2' # 青
+            else:
+                target_intensity = self.intensity
+                plot_color = '#4a90e2' # 青
+
+            # Fitting
             mask_bg = (self.energy >= bg_start) & (self.energy <= bg_end)
             if not np.any(mask_bg): raise ValueError("No BG data")
-            popt_bg, _ = curve_fit(linear_func, self.energy[mask_bg], self.intensity[mask_bg])
+            popt_bg, _ = curve_fit(linear_func, self.energy[mask_bg], target_intensity[mask_bg])
 
             mask_slope = (self.energy >= slope_start) & (self.energy <= slope_end)
             if not np.any(mask_slope): raise ValueError("No Slope data")
-            popt_slope, _ = curve_fit(linear_func, self.energy[mask_slope], self.intensity[mask_slope])
+            popt_slope, _ = curve_fit(linear_func, self.energy[mask_slope], target_intensity[mask_slope])
 
             a1, b1 = popt_bg
             a2, b2 = popt_slope
@@ -341,13 +429,20 @@ class XPS_VB_Edge_App(ctk.CTk):
 
             self.vbm_label.configure(text=f"VBM: {vbm_x:.3f} eV")
 
-            # 描画
+            # Plot Result
             self.ax.clear()
-            self.ax.plot(self.energy, self.intensity, color='gray', alpha=0.4, label='Raw Data')
             
+            # Shirley ON/OFFに応じたベースプロット
+            if self.chk_shirley_var.get():
+                self.ax.plot(self.energy, self.intensity, color='gray', alpha=0.3, label='Raw Data')
+                self.ax.plot(self.energy, self.bg_data, color='gray', linestyle='--', alpha=0.5, label='Shirley BG')
+                self.ax.plot(self.energy, target_intensity, color=plot_color, linewidth=1.5, label='Corrected')
+            else:
+                self.ax.plot(self.energy, self.intensity, color='gray', alpha=0.4, label='Raw Data')
+
             x_range = np.linspace(min(self.energy), max(self.energy), 200)
-            self.ax.plot(x_range, linear_func(x_range, *popt_bg), 'b--', alpha=0.8, label='Baseline')
-            self.ax.plot(x_range, linear_func(x_range, *popt_slope), 'r--', alpha=0.8, label='Slope')
+            self.ax.plot(x_range, linear_func(x_range, *popt_bg), 'b--', alpha=0.8, label='Baseline Fit')
+            self.ax.plot(x_range, linear_func(x_range, *popt_slope), 'r--', alpha=0.8, label='Slope Fit')
             self.ax.plot(vbm_x, vbm_y, 'go', markersize=10, zorder=5, label=f'VBM={vbm_x:.2f}eV')
             self.ax.axvline(vbm_x, color='green', linestyle=':', alpha=0.8)
             
@@ -356,8 +451,7 @@ class XPS_VB_Edge_App(ctk.CTk):
 
             self.ax.legend()
             self.ax.grid(True)
-            
-            # ★ 最後にユーザーの設定した見た目を再適用
+            self.ax.invert_xaxis()
             self.apply_graph_settings()
 
             if self.span: self.span.set_visible(True)
