@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.widgets import SpanSelector
 from scipy.optimize import curve_fit
-from scipy.integrate import simpson
 import os
 
 # 設定
@@ -46,7 +45,7 @@ def calculate_shirley_bg(x, y, tol=1e-5, max_iters=50):
     # 積分範囲は 低BE(右) から 対象エネルギー まで
     
     # 全体の面積 (I(E) - I_start)
-    total_area = np.trapz(y_sorted - I_start, x_sorted)
+    total_area = np.trapezoid(y_sorted - I_start, x_sorted)
     
     for _ in range(max_iters):
         bg_new = np.zeros(n)
@@ -54,10 +53,8 @@ def calculate_shirley_bg(x, y, tol=1e-5, max_iters=50):
         # 累積積分 (Cumulative Trapezoidal Integration)
         # 各点までの面積を計算
         # cumtrapz的な処理
-        # I(E) - I_start ではなく、I(E) - B_old(E) を使うのが本来だが
-        # 簡易実装として I(E) - I_start の割合で I_diff を配分する形が一般的
-        
-        diff_array = y_sorted - I_start
+        # ※ bg はループの最後で更新されているもの
+        diff_array = y_sorted - bg
         # 負の値はクリップ
         diff_array[diff_array < 0] = 0
         
