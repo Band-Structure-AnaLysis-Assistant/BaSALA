@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-from matplotlib.widgets import SpanSelector # ★これを追加
+from matplotlib.widgets import SpanSelector
 from scipy.optimize import curve_fit
 import os
 
@@ -20,7 +20,7 @@ class XPS_VB_Edge_App(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("XPS VB Edge Analyzer (Phase 1) - v0.3 (Mouse Control)")
+        self.title("XPS VB Edge Analyzer (Phase 1) - v0.4 (XPS Convention)")
         self.geometry("1200x850")
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -29,9 +29,8 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.energy = None
         self.intensity = None
         
-        # ★ マウス選択用の変数を追加
         self.span = None 
-        self.selection_mode = None # "bg" or "slope"
+        self.selection_mode = None
 
         # UI構築
         self._create_sidebar()
@@ -56,12 +55,12 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.sep_option.set(", (Comma)")
         self.sep_option.pack(padx=10, pady=(0, 10))
 
-        # --- Step 2: Parameter Setting (マウス操作ボタンを追加) ---
+        # --- Step 2: Parameter Setting ---
         self.step2_frame = ctk.CTkFrame(self.sidebar)
         self.step2_frame.pack(padx=10, pady=15, fill="x")
         ctk.CTkLabel(self.step2_frame, text="Step 2: Fitting Ranges (eV)", font=("Roboto", 14, "bold")).pack(pady=5)
 
-        # ★ Background Range UI
+        # Background Range
         ctk.CTkLabel(self.step2_frame, text="Background Range:", font=("Roboto", 12)).pack(anchor="w", padx=10)
         self.bg_frame = ctk.CTkFrame(self.step2_frame, fg_color="transparent")
         self.bg_frame.pack(padx=10, pady=0, fill="x")
@@ -72,11 +71,10 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.entry_bg_max = ctk.CTkEntry(self.bg_frame, width=60, placeholder_text="Max")
         self.entry_bg_max.pack(side="left", padx=(2, 5))
         
-        # 選択ボタン (BG)
         self.btn_sel_bg = ctk.CTkButton(self.bg_frame, text="🖱️Select", width=60, fg_color="gray", command=lambda: self.activate_selector("bg"))
         self.btn_sel_bg.pack(side="right")
 
-        # ★ Slope Range UI
+        # Slope Range
         ctk.CTkLabel(self.step2_frame, text="VB Slope Range:", font=("Roboto", 12)).pack(anchor="w", padx=10, pady=(10, 0))
         self.slope_frame = ctk.CTkFrame(self.step2_frame, fg_color="transparent")
         self.slope_frame.pack(padx=10, pady=0, fill="x")
@@ -87,14 +85,11 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.entry_slope_max = ctk.CTkEntry(self.slope_frame, width=60, placeholder_text="Max")
         self.entry_slope_max.pack(side="left", padx=(2, 5))
 
-        # 選択ボタン (Slope)
         self.btn_sel_slope = ctk.CTkButton(self.slope_frame, text="🖱️Select", width=60, fg_color="gray", command=lambda: self.activate_selector("slope"))
         self.btn_sel_slope.pack(side="right")
         
-        # モード解除ボタン
         self.btn_reset_mode = ctk.CTkButton(self.step2_frame, text="Stop Selection (Zoom Mode)", fg_color="transparent", border_width=1, command=self.deactivate_selector)
         self.btn_reset_mode.pack(pady=10)
-
 
         # --- Step 3: Analysis ---
         self.calc_btn = ctk.CTkButton(self.sidebar, text="Calculate VBM", command=self.calculate, fg_color="#2d8d2d", state="disabled", height=40, font=("Roboto", 16, "bold"))
@@ -116,6 +111,9 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.ax.set_ylabel("Intensity (a.u.)")
         self.ax.grid(True, linestyle='--', alpha=0.6)
         
+        # 初期状態でも軸を反転させておく（見た目の統一）
+        self.ax.invert_xaxis() 
+
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.main_frame)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
 
@@ -123,30 +121,21 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.toolbar.update()
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
 
-    # --- ★ マウス選択ロジック ---
     def activate_selector(self, mode):
-        """範囲選択モードを有効化"""
         self.selection_mode = mode
-        
-        # 既存のセレクタがあれば消す
         if self.span:
             self.span.set_visible(False)
             self.span = None
 
-        # 色の設定 (BG=青, Slope=赤)
         color = 'blue' if mode == 'bg' else 'red'
         
-        # ボタンの色を変えて「今選んでますよ」感を出す
         if mode == 'bg':
-            self.btn_sel_bg.configure(fg_color="#1f538d") # Active Blue
+            self.btn_sel_bg.configure(fg_color="#1f538d")
             self.btn_sel_slope.configure(fg_color="gray")
         else:
             self.btn_sel_bg.configure(fg_color="gray")
-            self.btn_sel_slope.configure(fg_color="#c62828") # Active Red
+            self.btn_sel_slope.configure(fg_color="#c62828")
 
-        # SpanSelectorを作成 (onselectコールバックを登録)
-        # direction='horizontal': 横方向のみ選択
-        # useblit=True: 高速描画
         self.span = SpanSelector(
             self.ax, 
             self.on_select, 
@@ -159,7 +148,6 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.canvas.draw()
 
     def deactivate_selector(self):
-        """選択モードを終了し、ズーム等が使えるようにする"""
         if self.span:
             self.span.set_visible(False)
             self.span = None
@@ -169,19 +157,13 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.canvas.draw()
 
     def on_select(self, vmin, vmax):
-        """範囲が選択されたときに呼ばれる関数"""
-        # 小さい順に並べる
         min_val, max_val = sorted([vmin, vmax])
-        
-        # 現在のモードに応じてEntryに入力
         if self.selection_mode == 'bg':
             self.entry_bg_min.delete(0, tk.END); self.entry_bg_min.insert(0, f"{min_val:.2f}")
             self.entry_bg_max.delete(0, tk.END); self.entry_bg_max.insert(0, f"{max_val:.2f}")
         elif self.selection_mode == 'slope':
             self.entry_slope_min.delete(0, tk.END); self.entry_slope_min.insert(0, f"{min_val:.2f}")
             self.entry_slope_max.delete(0, tk.END); self.entry_slope_max.insert(0, f"{max_val:.2f}")
-
-    # ---------------------------
 
     def load_csv(self):
         file_path = filedialog.askopenfilename(filetypes=[("Data Files", "*.csv *.txt *.dat"), ("All Files", "*.*")])
@@ -206,7 +188,6 @@ class XPS_VB_Edge_App(ctk.CTk):
                 messagebox.showerror("Data Error", "有効な数値データなし")
                 return
 
-            # 初期値
             min_e = np.min(self.energy)
             self.entry_bg_min.delete(0, tk.END); self.entry_bg_min.insert(0, f"{min_e:.1f}")
             self.entry_bg_max.delete(0, tk.END); self.entry_bg_max.insert(0, f"{min_e+2.0:.1f}")
@@ -218,8 +199,11 @@ class XPS_VB_Edge_App(ctk.CTk):
             self.ax.set_title(f"Loaded: {os.path.basename(file_path)}")
             self.ax.legend()
             self.ax.grid(True)
-            self.canvas.draw()
             
+            # ★★★ ここで軸反転！ ★★★
+            self.ax.invert_xaxis() 
+
+            self.canvas.draw()
             self.calc_btn.configure(state="normal")
             self.file_path = file_path
             
@@ -267,8 +251,10 @@ class XPS_VB_Edge_App(ctk.CTk):
             self.ax.legend()
             self.ax.grid(True)
             
-            # 再描画時にSpanSelectorを消さないように注意する
-            if self.span: self.span.set_visible(True) # 再表示
+            # ★★★ ここでも軸反転！ ★★★
+            self.ax.invert_xaxis() 
+
+            if self.span: self.span.set_visible(True)
             self.canvas.draw()
             
         except ValueError as ve:
