@@ -119,7 +119,7 @@ class XPS_VB_Edge_App(ctk.CTk):
         super().__init__()
 
         # --- ウィンドウ設定 ---
-        self.title("XPS Analysis Suite - v1.2 (Gaussian Peak Fit)")
+        self.title("XPS Analysis Suite - v1.3 (Auto Scaling)")
         self.geometry("1280x900")
         
         # 「×」ボタンで終了したときの処理を登録 (メモリ解放のため)
@@ -147,7 +147,7 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.sidebar.pack(side="left", fill="y", padx=0, pady=0)
 
         # タイトルロゴ
-        self.logo_label = ctk.CTkLabel(self.sidebar, text="XPS Analysis\nv1.2", font=ctk.CTkFont(size=24, weight="bold"))
+        self.logo_label = ctk.CTkLabel(self.sidebar, text="XPS Analysis\nv1.3", font=ctk.CTkFont(size=24, weight="bold"))
         self.logo_label.pack(padx=20, pady=(20, 10))
 
         # --- 共通操作エリア (読み込み & BG補正) ---
@@ -174,12 +174,11 @@ class XPS_VB_Edge_App(ctk.CTk):
         
         self.tab_analysis = self.tabview.add("Analysis")       # Tab 1: VBM解析
         self.tab_bg = self.tabview.add("Band Gap")             # Tab 2: バンドギャップ解析
-        self.tab_graph = self.tabview.add("Graph Settings")    # Tab 3: グラフ見た目設定
+        # ※ Graph Settings タブは削除しました
 
         # 各タブの中身を初期化する関数を呼び出し
         self._init_vbm_tab()
         self._init_bandgap_tab()
-        self._init_graph_tab()
 
     def _init_vbm_tab(self):
         """Tab 1: VBM解析 (直線交点法) のUI構築"""
@@ -220,7 +219,6 @@ class XPS_VB_Edge_App(ctk.CTk):
     def _init_bandgap_tab(self):
         """
         Tab 2: バンドギャップ解析 (モード切替機能付き) のUI構築
-        ※ ボタンの位置ずれを防ぐため、可変入力欄はコンテナに格納します。
         """
         self.bg_tab_frame = ctk.CTkFrame(self.tab_bg, fg_color="transparent")
         self.bg_tab_frame.pack(fill="both", expand=True)
@@ -302,34 +300,6 @@ class XPS_VB_Edge_App(ctk.CTk):
             self.frame_linear.pack_forget() # Linear用UIを隠す
             self.frame_deriv.pack(fill="x", pady=5) # Deriv用UIを表示
 
-    def _init_graph_tab(self):
-        """Tab 3: グラフの見た目編集UI構築"""
-        frame = ctk.CTkFrame(self.tab_graph, fg_color="transparent")
-        frame.pack(fill="both", expand=True)
-        
-        # タイトル・ラベル入力
-        ctk.CTkLabel(frame, text="Labels & Title", font=("Roboto", 12, "bold")).pack(anchor="w", pady=2)
-        self.entry_title = ctk.CTkEntry(frame, placeholder_text="Graph Title"); self.entry_title.pack(fill="x", pady=2)
-        self.entry_xlabel = ctk.CTkEntry(frame, placeholder_text="X Label"); self.entry_xlabel.pack(fill="x", pady=2)
-        self.entry_ylabel = ctk.CTkEntry(frame, placeholder_text="Y Label"); self.entry_ylabel.pack(fill="x", pady=2)
-        
-        # フォントサイズ入力
-        ctk.CTkLabel(frame, text="Font Sizes", font=("Roboto", 12, "bold")).pack(anchor="w", pady=(10,2))
-        f_frame = ctk.CTkFrame(frame, fg_color="transparent"); f_frame.pack(fill="x")
-        ctk.CTkLabel(f_frame, text="Title:").grid(row=0, column=0); self.entry_fs_title = ctk.CTkEntry(f_frame, width=40); self.entry_fs_title.grid(row=0, column=1); self.entry_fs_title.insert(0, "14")
-        ctk.CTkLabel(f_frame, text="Label:").grid(row=0, column=2, padx=5); self.entry_fs_label = ctk.CTkEntry(f_frame, width=40); self.entry_fs_label.grid(row=0, column=3); self.entry_fs_label.insert(0, "12")
-        ctk.CTkLabel(f_frame, text="Tick:").grid(row=1, column=0, pady=5); self.entry_fs_tick = ctk.CTkEntry(f_frame, width=40); self.entry_fs_tick.grid(row=1, column=1, pady=5); self.entry_fs_tick.insert(0, "10")
-
-        # 軸範囲 (Min/Max) 入力
-        ctk.CTkLabel(frame, text="Plot Range (Min / Max)", font=("Roboto", 12, "bold")).pack(anchor="w", pady=(10,2))
-        r_frame = ctk.CTkFrame(frame, fg_color="transparent"); r_frame.pack(fill="x")
-        ctk.CTkLabel(r_frame, text="X (eV):", width=40).pack(side="left"); self.lim_x_min = ctk.CTkEntry(r_frame, width=50); self.lim_x_min.pack(side="left", padx=2); self.lim_x_max = ctk.CTkEntry(r_frame, width=50); self.lim_x_max.pack(side="left", padx=2)
-        r2_frame = ctk.CTkFrame(frame, fg_color="transparent"); r2_frame.pack(fill="x", pady=5)
-        ctk.CTkLabel(r2_frame, text="Y (Int):", width=40).pack(side="left"); self.lim_y_min = ctk.CTkEntry(r2_frame, width=50); self.lim_y_min.pack(side="left", padx=2); self.lim_y_max = ctk.CTkEntry(r2_frame, width=50); self.lim_y_max.pack(side="left", padx=2)
-
-        # 適用ボタン
-        ctk.CTkButton(frame, text="Apply Settings", command=self.apply_graph_settings, fg_color="#E07A5F").pack(pady=20, fill="x")
-
     def _create_main_area(self):
         """右側のメイン描画エリアを作成"""
         self.main_frame = ctk.CTkFrame(self)
@@ -356,28 +326,27 @@ class XPS_VB_Edge_App(ctk.CTk):
     # 4. 操作ロジック (グラフ設定・マウス操作)
     # ==========================================
 
-    def apply_graph_settings(self):
-        """[Graph Settings]タブの内容をグラフに反映"""
-        try:
-            # ラベル設定
-            if self.entry_title.get(): self.ax.set_title(self.entry_title.get())
-            if self.entry_xlabel.get(): self.ax.set_xlabel(self.entry_xlabel.get())
-            if self.entry_ylabel.get(): self.ax.set_ylabel(self.entry_ylabel.get())
-            
-            # フォント設定
-            self.ax.set_title(self.ax.get_title(), fontsize=int(self.entry_fs_title.get()))
-            self.ax.set_xlabel(self.ax.get_xlabel(), fontsize=int(self.entry_fs_label.get()))
-            self.ax.set_ylabel(self.ax.get_ylabel(), fontsize=int(self.entry_fs_label.get()))
-            self.ax.tick_params(axis='both', which='major', labelsize=int(self.entry_fs_tick.get()))
-            
-            # 軸範囲設定
-            try: self.ax.set_xlim(float(self.lim_x_max.get()), float(self.lim_x_min.get())) 
-            except: pass
-            try: self.ax.set_ylim(float(self.lim_y_min.get()), float(self.lim_y_max.get()))
-            except: pass
-            
-            self.canvas.draw()
-        except Exception as e: messagebox.showerror("Error", str(e))
+    def auto_scale_y(self):
+        """
+        Y軸の範囲を自動調整する機能
+        - 上限: 元データ(Raw)の最大値 + マージン
+        - 下限: 表示中のデータ(補正後はCorrected)の最小値 - マージン
+        """
+        if self.intensity is None: return
+        
+        # 上限は常に元のスペクトルの最大値を基準にする（全体像を維持）
+        y_max_raw = np.max(self.intensity)
+        
+        # 下限は現在表示しているデータ（補正されているかどうか）に合わせる
+        y_current = self.get_current_intensity()
+        y_min_curr = np.min(y_current)
+        
+        # マージン計算 (表示範囲の約5%)
+        amp = y_max_raw - y_min_curr
+        margin = amp * 0.05 if amp > 0 else 10.0
+        
+        # 範囲設定
+        self.ax.set_ylim(y_min_curr - margin, y_max_raw + margin)
 
     def activate_selector(self, mode):
         """マウス範囲選択モードを有効化"""
@@ -489,15 +458,8 @@ class XPS_VB_Edge_App(ctk.CTk):
             
             # 状態リセット
             self.chk_shirley_var.set(False); self.intensity_corrected = None; self.bg_data = None
-            self.entry_title.delete(0, tk.END); self.entry_title.insert(0, f"XPS: {os.path.basename(file_path)}")
             
-            # グラフ範囲リセット
-            self.lim_x_min.delete(0, tk.END); self.lim_x_min.insert(0, f"{min_e:.1f}")
-            self.lim_x_max.delete(0, tk.END); self.lim_x_max.insert(0, f"{max_e:.1f}")
-            self.lim_y_min.delete(0, tk.END); self.lim_y_min.insert(0, f"{np.min(self.intensity):.1f}")
-            self.lim_y_max.delete(0, tk.END); self.lim_y_max.insert(0, f"{np.max(self.intensity):.1f}")
-            
-            # 描画
+            # 描画 (自動軸調整はplot_base_graph内で呼ばれる)
             self.plot_base_graph()
             self.calc_btn.configure(state="normal"); self.calc_bg_btn.configure(state="normal")
             
@@ -516,7 +478,9 @@ class XPS_VB_Edge_App(ctk.CTk):
             self.ax.plot(self.energy, self.intensity, color='#4a90e2', linewidth=1.5, label='Raw Spectrum')
             
         self.ax.legend(); self.ax.grid(True); self.ax.invert_xaxis()
-        self.apply_graph_settings()
+        
+        # ★ 自動軸調整を適用
+        self.auto_scale_y()
         self.canvas.draw()
 
     def get_current_intensity(self):
@@ -548,7 +512,8 @@ class XPS_VB_Edge_App(ctk.CTk):
             self.vbm_label.configure(text=f"VBM: {vbm_x:.3f} eV")
 
             # 描画
-            self.plot_base_graph()
+            self.plot_base_graph() # ベース描画（ここでオートスケールされる）
+            
             x_plot = np.linspace(min(self.energy), max(self.energy), 200)
             self.ax.plot(x_plot, linear_func(x_plot, *popt_bg), 'b--', alpha=0.8, label='Base Fit')
             self.ax.plot(x_plot, linear_func(x_plot, *popt_sl), 'r--', alpha=0.8, label='Slope Fit')
@@ -603,7 +568,7 @@ class XPS_VB_Edge_App(ctk.CTk):
                 peak_y = y_pk_fit[idx_max]
                 popt_gauss = None
 
-            # ベース描画
+            # ベース描画（オートスケール含む）
             self.plot_base_graph()
             
             # フィッティング曲線の描画 (成功時のみ)
@@ -645,20 +610,16 @@ class XPS_VB_Edge_App(ctk.CTk):
                 d_r = (float(self.bg_deriv_min.get()), float(self.bg_deriv_max.get()))
                 
                 # 1. まず全体をスムージングする (端点誤差を防ぐため)
-                # データ点数が少ない場合は調整
                 target_window = 51
                 w_len = min(target_window, len(y_data))
                 if w_len % 2 == 0: w_len -= 1
                 if w_len < 3: w_len = 3
                 
-                # 全データに対してフィルタ適用
                 y_smooth_all = savgol_filter(y_data, window_length=w_len, polyorder=2)
 
                 # 2. 必要な範囲だけ切り出す
                 mask_d = (self.energy >= d_r[0]) & (self.energy <= d_r[1])
                 x_d = self.energy[mask_d]
-                
-                # 切り出した部分に対応するスムージング済みデータ
                 y_d_smooth = y_smooth_all[mask_d] 
                 
                 if len(x_d) < 5: raise ValueError("微分解析用のデータ点数が少なすぎます")
@@ -669,10 +630,11 @@ class XPS_VB_Edge_App(ctk.CTk):
                 # 3. 2次微分 (切り出した滑らかなデータに対して)
                 d2y = np.gradient(np.gradient(y_d_smooth, x_d), x_d)
                 
-                # 4. 最大値探索
+                # 4. 最大値探索 (正の曲率のみ)
                 max_d2_idx = np.argmax(d2y)
                 max_val = d2y[max_d2_idx]
                 
+                # 安全装置: 2次微分が負なら立ち上がりではないと判断
                 if max_val <= 0:
                     raise ValueError("選択範囲内に明確な立ち上がり(正の曲率)が見つかりません。")
 
@@ -684,7 +646,7 @@ class XPS_VB_Edge_App(ctk.CTk):
                 self.ax.plot(onset_x, onset_y, 'bx', markersize=10, markeredgewidth=3, zorder=6, label='Deriv Onset')
                 self.ax.axvline(onset_x, color='orange', linestyle='--', alpha=0.8)
 
-            # 共通: 矢印
+            # 共通: 結果矢印の描画
             arrow_y = (peak_y + onset_y) / 2
             self.ax.annotate(f'Eg = {gap:.2f} eV', xy=(peak_x, arrow_y), xytext=(onset_x, arrow_y),
                              arrowprops=dict(arrowstyle='<->', color='purple', lw=2),
