@@ -7,26 +7,31 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.widgets import SpanSelector
 from scipy.optimize import curve_fit
-from scipy.signal import savgol_filter
+from scipy.signal import savgol_filter, find_peaks
 import os
 
 # ==========================================
 # 1. アプリケーション設定エリア
 # ==========================================
-ctk.set_appearance_mode("Dark")
-ctk.set_default_color_theme("dark-blue")
+ctk.set_appearance_mode("Dark")       # 外観モード: Dark, Light, System
+ctk.set_default_color_theme("dark-blue") # テーマカラー
 
 # ==========================================
 # 2. 数学・物理計算用 関数群
 # ==========================================
 
 def linear_func(x, a, b):
+    """線形近似用関数 (y = ax + b)"""
     return a * x + b
 
 def gaussian_func(x, a, mu, sigma, c):
+    """ガウス関数 (ピークフィッティング用)"""
     return a * np.exp(-(x - mu)**2 / (2 * sigma**2)) + c
 
 def calculate_shirley_bg(x, y, tol=1e-5, max_iters=50):
+    """
+    Shirley法によるバックグラウンド（BG）計算関数
+    """
     sorted_indices = np.argsort(x)
     x_sorted = x[sorted_indices]
     y_sorted = y[sorted_indices]
@@ -58,11 +63,11 @@ def calculate_shirley_bg(x, y, tol=1e-5, max_iters=50):
 class XPS_VB_Edge_App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("XPS Analysis Suite - v1.5 (Auto Linear Fit)")
+        self.title("XPS Analysis Suite - v1.8 (Multi-Mode Candidates)")
         self.geometry("1280x900")
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        # Variables
+        # データ保持用変数
         self.file_path = None
         self.df = None
         self.energy = None
@@ -71,18 +76,23 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.bg_data = None
         self.span = None
         self.selection_mode = None
+        
+        # 候補選択用 (Hybrid & Derivative)
+        self.candidates = [] # [(x, y, score), ...]
+        self.calc_context = {} # 再描画に必要な情報を一時保存
 
         self._create_sidebar()
         self._create_main_area()
 
     def _create_sidebar(self):
+        """サイドバー（操作パネル）の作成"""
         self.sidebar = ctk.CTkFrame(self, width=340, corner_radius=0)
         self.sidebar.pack(side="left", fill="y", padx=0, pady=0)
 
-        self.logo_label = ctk.CTkLabel(self.sidebar, text="XPS Analysis\nv1.5", font=ctk.CTkFont(size=24, weight="bold"))
+        self.logo_label = ctk.CTkLabel(self.sidebar, text="XPS Analysis\nv1.8", font=ctk.CTkFont(size=24, weight="bold"))
         self.logo_label.pack(padx=20, pady=(20, 10))
 
-        # Common Area
+        # --- 共通設定 (Load & Shirley) ---
         self.common_frame = ctk.CTkFrame(self.sidebar)
         self.common_frame.pack(padx=10, pady=5, fill="x")
         self.load_btn = ctk.CTkButton(self.common_frame, text="Open CSV / Text", command=self.load_csv, fg_color="#1f538d")
@@ -94,7 +104,7 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.chk_shirley = ctk.CTkCheckBox(self.common_frame, text="Apply Shirley BG", variable=self.chk_shirley_var, command=self.on_shirley_toggle)
         self.chk_shirley.pack(padx=10, pady=10, anchor="w")
 
-        # Tabs
+        # --- タブビュー ---
         self.tabview = ctk.CTkTabview(self.sidebar, width=320)
         self.tabview.pack(padx=10, pady=10, fill="both", expand=True)
         self.tab_analysis = self.tabview.add("Analysis")
@@ -104,6 +114,7 @@ class XPS_VB_Edge_App(ctk.CTk):
         self._init_bandgap_tab()
 
     def _init_vbm_tab(self):
+        """Tab 1: VBM解析 (Linear Intersection)"""
         frame = ctk.CTkFrame(self.tab_analysis, fg_color="transparent")
         frame.pack(fill="both", expand=True)
         ctk.CTkLabel(frame, text="Determine VBM by Intersection", font=("Roboto", 12, "bold")).pack(pady=5)
@@ -132,19 +143,19 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.vbm_label.pack(pady=5)
 
     def _init_bandgap_tab(self):
-        """Band Gap Tab"""
+        """Tab 2: Band Gap解析 (3つのモード)"""
         self.bg_tab_frame = ctk.CTkFrame(self.tab_bg, fg_color="transparent")
         self.bg_tab_frame.pack(fill="both", expand=True)
 
-        # ★ モード切替: Segmented FitをAuto Linearに変更
+        # ★ モード切替: Linear / Hybrid / Derivative
         self.bg_mode_var = ctk.StringVar(value="Linear Fit")
         self.seg_bg_mode = ctk.CTkSegmentedButton(self.bg_tab_frame, 
-                                                  values=["Linear Fit", "Auto Linear", "Derivative"], 
+                                                  values=["Linear Fit", "Hybrid Fit", "Derivative"], 
                                                   variable=self.bg_mode_var, command=self.update_bg_ui)
         self.seg_bg_mode.pack(pady=10, padx=10, fill="x")
         self.seg_bg_mode.set("Linear Fit")
 
-        # 1. Main Peak
+        # 1. Main Peak (共通)
         ctk.CTkLabel(self.bg_tab_frame, text="1. Main Peak (Eg Reference):", font=("Roboto", 11)).pack(anchor="w", padx=5)
         self.p_frame = ctk.CTkFrame(self.bg_tab_frame, fg_color="transparent")
         self.p_frame.pack(fill="x", padx=5)
@@ -153,11 +164,11 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.bg_peak_max = ctk.CTkEntry(self.p_frame, width=50); self.bg_peak_max.pack(side="left")
         ctk.CTkButton(self.p_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("bg_peak")).pack(side="right")
 
-        # Input Container
+        # Input Container (レイアウト固定用)
         self.bg_input_container = ctk.CTkFrame(self.bg_tab_frame, fg_color="transparent")
         self.bg_input_container.pack(fill="x", pady=5)
 
-        # --- A. Manual Linear UI ---
+        # --- A. Linear / Hybrid Mode UI (2 Ranges) ---
         self.frame_linear = ctk.CTkFrame(self.bg_input_container, fg_color="transparent")
         ctk.CTkLabel(self.frame_linear, text="2. Loss Base (Flat):", font=("Roboto", 11)).pack(anchor="w", padx=5, pady=(5,0))
         self.b_frame = ctk.CTkFrame(self.frame_linear, fg_color="transparent"); self.b_frame.pack(fill="x", padx=5)
@@ -169,7 +180,7 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.bg_slope_min = ctk.CTkEntry(self.s_frame, width=50); self.bg_slope_min.pack(side="left"); ctk.CTkLabel(self.s_frame, text="-").pack(side="left"); self.bg_slope_max = ctk.CTkEntry(self.s_frame, width=50); self.bg_slope_max.pack(side="left")
         ctk.CTkButton(self.s_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("bg_slope")).pack(side="right")
 
-        # --- B. Single Range UI (Auto Linear / Derivative) ---
+        # --- B. Derivative Mode UI (1 Range) ---
         self.frame_single = ctk.CTkFrame(self.bg_input_container, fg_color="transparent")
         ctk.CTkLabel(self.frame_single, text="2. Onset Search Region:", font=("Roboto", 11)).pack(anchor="w", padx=5, pady=(5,0))
         ctk.CTkLabel(self.frame_single, text="(Cover both Background & Rising edge)", font=("Roboto", 10), text_color="gray").pack(anchor="w", padx=5)
@@ -179,24 +190,45 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.bg_single_max = ctk.CTkEntry(self.d_frame, width=50); self.bg_single_max.pack(side="left")
         ctk.CTkButton(self.d_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("bg_single")).pack(side="right")
 
+        # 初期表示: Linear
         self.frame_linear.pack(fill="x", pady=5)
 
         # Buttons
         ctk.CTkButton(self.bg_tab_frame, text="Stop Selection", fg_color="transparent", border_width=1, height=24, command=self.deactivate_selector).pack(pady=10)
         self.calc_bg_btn = ctk.CTkButton(self.bg_tab_frame, text="Calculate Band Gap", command=self.calculate_bandgap, fg_color="#E07A5F", state="disabled")
         self.calc_bg_btn.pack(pady=5, fill="x")
+        
+        # ★ 候補選択用ドロップダウン (Hybrid / Derivative で表示)
+        self.frame_candidates = ctk.CTkFrame(self.bg_tab_frame, fg_color="transparent")
+        ctk.CTkLabel(self.frame_candidates, text="Candidates:", font=("Roboto", 12)).pack(side="left", padx=5)
+        self.combo_candidates = ctk.CTkComboBox(self.frame_candidates, width=200, command=self.on_candidate_selected)
+        self.combo_candidates.pack(side="left", padx=5)
+        
+        # 初期状態は隠す
+        self.frame_candidates.pack_forget()
+        
+        # 結果ラベル
         self.lbl_res_gap = ctk.CTkLabel(self.bg_tab_frame, text="Eg: --- eV", font=ctk.CTkFont(size=18, weight="bold"), text_color="#E07A5F")
         self.lbl_res_gap.pack(pady=5)
 
     def update_bg_ui(self, value):
-        if value == "Linear Fit":
+        """モードに応じたUIの切り替え"""
+        # 入力欄の切り替え
+        if value in ["Linear Fit", "Hybrid Fit"]:
             self.frame_single.pack_forget()
             self.frame_linear.pack(fill="x", pady=5)
         else:
             self.frame_linear.pack_forget()
             self.frame_single.pack(fill="x", pady=5)
+            
+        # 候補選択UIの制御 (Linear以外は表示)
+        if value == "Linear Fit":
+            self.frame_candidates.pack_forget()
+        else:
+            self.frame_candidates.pack(pady=5)
 
     def _create_main_area(self):
+        """右側グラフ描画エリア"""
         self.main_frame = ctk.CTkFrame(self)
         self.main_frame.pack(side="right", fill="both", expand=True, padx=10, pady=10)
         self.fig, self.ax = plt.subplots(figsize=(8, 6), dpi=100)
@@ -295,7 +327,7 @@ class XPS_VB_Edge_App(ctk.CTk):
         return self.intensity_corrected if (self.chk_shirley_var.get() and self.intensity_corrected is not None) else self.intensity
 
     def calculate(self):
-        """VBM Analysis (Linear Intersection)"""
+        """VBM Analysis"""
         if self.energy is None: return
         try:
             y_data = self.get_current_intensity()
@@ -322,7 +354,7 @@ class XPS_VB_Edge_App(ctk.CTk):
         except Exception as e: messagebox.showerror("Calc Error", str(e))
 
     def calculate_bandgap(self):
-        """Band Gap (Linear / Auto Linear / Derivative)"""
+        """Band Gap (Linear / Hybrid / Derivative)"""
         if self.energy is None: return
         try:
             y_data = self.get_current_intensity()
@@ -342,6 +374,7 @@ class XPS_VB_Edge_App(ctk.CTk):
             except:
                 idx_max = np.argmax(y_pk_fit); peak_x = x_pk_fit[idx_max]; peak_y = y_pk_fit[idx_max]; popt_gauss = None
 
+            # ベース描画
             self.plot_base_graph()
             if popt_gauss is not None:
                 x_fine = np.linspace(pk_r[0], pk_r[1], 100)
@@ -350,117 +383,199 @@ class XPS_VB_Edge_App(ctk.CTk):
             self.ax.axvline(peak_x, color='green', linestyle=':', alpha=0.6)
             self.ax.axvspan(pk_r[0], pk_r[1], color='green', alpha=0.1)
 
+            # 再描画・候補選択用にコンテキスト保存
+            self.calc_context = {
+                'peak_x': peak_x, 'peak_y': peak_y,
+                'popt_gauss': popt_gauss, 'y_data': y_data, 'mode': mode
+            }
+
             onset_x, onset_y, gap = 0, 0, 0
 
             # ------------------------------------
             # Logic Branching
             # ------------------------------------
             if mode == "Linear Fit":
-                # A. Manual Linear
+                # A. Linear Fit (交点法) - 候補なし
                 base_r = (float(self.bg_base_min.get()), float(self.bg_base_max.get()))
                 sl_r = (float(self.bg_slope_min.get()), float(self.bg_slope_max.get()))
                 mask_base = (self.energy >= base_r[0]) & (self.energy <= base_r[1])
                 mask_sl = (self.energy >= sl_r[0]) & (self.energy <= sl_r[1])
-                
                 popt_base, _ = curve_fit(linear_func, self.energy[mask_base], y_data[mask_base])
                 popt_sl, _ = curve_fit(linear_func, self.energy[mask_sl], y_data[mask_sl])
                 
                 onset_x = (popt_sl[1] - popt_base[1]) / (popt_base[0] - popt_sl[0])
                 onset_y = linear_func(onset_x, *popt_base)
+                gap = abs(onset_x - peak_x)
                 
+                # Context保存 (直線のパラメータ)
+                self.calc_context.update({'popt_base': popt_base, 'popt_sl': popt_sl, 'base_r': base_r, 'sl_r': sl_r})
+                
+                # Plot
                 x_plot = np.linspace(min(self.energy), max(self.energy), 200)
                 self.ax.plot(x_plot, linear_func(x_plot, *popt_base), 'b--', alpha=0.5, label='Base Fit')
                 self.ax.plot(x_plot, linear_func(x_plot, *popt_sl), 'r--', alpha=0.5, label='Slope Fit')
                 self.ax.axvspan(base_r[0], base_r[1], color='blue', alpha=0.1)
                 self.ax.axvspan(sl_r[0], sl_r[1], color='red', alpha=0.1)
-                self.ax.plot(onset_x, onset_y, 'ro', markersize=8, zorder=5, label='Linear Onset')
+                self.draw_result_marker(onset_x, onset_y, gap, "Linear Onset")
 
-            elif mode == "Auto Linear":
-                # B. Auto Linear (Calculates Tangent at Max Slope)
-                s_r = (float(self.bg_single_min.get()), float(self.bg_single_max.get()))
+            elif mode == "Hybrid Fit":
+                # B. Hybrid Fit (Linear Guide + Deriv Candidates)
+                base_r = (float(self.bg_base_min.get()), float(self.bg_base_max.get()))
+                sl_r = (float(self.bg_slope_min.get()), float(self.bg_slope_max.get()))
                 
-                # 1. 全体スムージングしてから範囲切り出し
-                target_window = 51
-                w_len = min(target_window, len(y_data))
-                if w_len % 2 == 0: w_len -= 1
-                if w_len < 3: w_len = 3
-                y_smooth_all = savgol_filter(y_data, window_length=w_len, polyorder=2)
+                mask_base = (self.energy >= base_r[0]) & (self.energy <= base_r[1])
+                mask_sl = (self.energy >= sl_r[0]) & (self.energy <= sl_r[1])
+                popt_base, _ = curve_fit(linear_func, self.energy[mask_base], y_data[mask_base])
+                popt_sl, _ = curve_fit(linear_func, self.energy[mask_sl], y_data[mask_sl])
+                linear_onset_x = (popt_sl[1] - popt_base[1]) / (popt_base[0] - popt_sl[0])
                 
-                mask_s = (self.energy >= s_r[0]) & (self.energy <= s_r[1])
-                x_s = self.energy[mask_s]
-                y_s_smooth = y_smooth_all[mask_s] # Use smoothed data for derivative
-                
-                if len(x_s) < 5: raise ValueError("Data too short")
-
-                # 2. 最大傾斜点を見つける (1次微分最大)
-                dy = np.gradient(y_s_smooth, x_s)
-                max_dy_idx = np.argmax(dy) # Positive slope max
-                
-                # 3. Slope Lineの作成 (最大傾斜点の周辺 ±2点程度でフィッティング)
-                center_idx = max_dy_idx
-                w = 2 
-                idx_start = max(0, center_idx - w)
-                idx_end = min(len(x_s), center_idx + w + 1)
-                
-                popt_sl, _ = curve_fit(linear_func, x_s[idx_start:idx_end], y_s_smooth[idx_start:idx_end])
-                
-                # 4. Base Lineの作成 (選択範囲の最初の20%を使う: BG側と仮定)
-                # XPSは通常 BE降順(左が大)だが、x_sは昇順にソートされているはず
-                # BGはエネルギー低い方(右側)にあるなら x_sの最初の方
-                n_base = max(3, int(len(x_s) * 0.2))
-                popt_base, _ = curve_fit(linear_func, x_s[:n_base], y_s_smooth[:n_base])
-                
-                # 5. 交点
-                onset_x = (popt_sl[1] - popt_base[1]) / (popt_base[0] - popt_sl[0])
-                onset_y = linear_func(onset_x, *popt_base)
-                
-                # Plot
-                self.ax.axvspan(s_r[0], s_r[1], color='orange', alpha=0.1, label='Search Region')
+                # ガイド線描画
                 x_plot = np.linspace(min(self.energy), max(self.energy), 200)
-                self.ax.plot(x_plot, linear_func(x_plot, *popt_base), 'b--', alpha=0.6, label='Auto Base')
-                self.ax.plot(x_plot, linear_func(x_plot, *popt_sl), 'r--', alpha=0.6, label='Auto Slope')
-                self.ax.plot(onset_x, onset_y, 'ro', markersize=8, zorder=5, label='Auto Onset')
+                self.ax.plot(x_plot, linear_func(x_plot, *popt_base), 'b--', alpha=0.3)
+                self.ax.plot(x_plot, linear_func(x_plot, *popt_sl), 'r--', alpha=0.3)
+                self.ax.axvspan(base_r[0], base_r[1], color='blue', alpha=0.1)
+                self.ax.axvspan(sl_r[0], sl_r[1], color='red', alpha=0.1)
+                
+                # Context保存 (再描画用)
+                self.calc_context.update({'popt_base': popt_base, 'popt_sl': popt_sl, 'base_r': base_r, 'sl_r': sl_r})
+
+                # 周辺探索 (±1.5eV)
+                search_min, search_max = linear_onset_x - 1.5, linear_onset_x + 1.5
+                self.find_and_display_candidates(search_min, search_max, y_data, peak_x, popt_base)
+                
+                # 探索範囲表示
+                self.ax.axvspan(search_min, search_max, color='orange', alpha=0.1, label='Search Region')
 
             else:
-                # C. Derivative Method (Max Curvature)
+                # C. Derivative Fit (Single Range + Candidates)
                 d_r = (float(self.bg_single_min.get()), float(self.bg_single_max.get()))
                 
-                target_window = 51
-                w_len = min(target_window, len(y_data))
-                if w_len % 2 == 0: w_len -= 1
-                if w_len < 3: w_len = 3
-                y_smooth_all = savgol_filter(y_data, window_length=w_len, polyorder=2)
+                # 探索実行
+                self.find_and_display_candidates(d_r[0], d_r[1], y_data, peak_x)
                 
-                mask_d = (self.energy >= d_r[0]) & (self.energy <= d_r[1])
-                x_d = self.energy[mask_d]
-                y_d_smooth = y_smooth_all[mask_d]
-                
-                if len(x_d) < 5: raise ValueError("Data too short")
-                
-                self.ax.plot(x_d, y_d_smooth, color='orange', linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
-                
-                d2y = np.gradient(np.gradient(y_d_smooth, x_d), x_d)
-                max_d2_idx = np.argmax(d2y)
-                
-                if d2y[max_d2_idx] <= 0: raise ValueError("正の曲率が見つかりません")
-                
-                onset_x = x_d[max_d2_idx]
-                onset_y = y_d_smooth[max_d2_idx]
+                # スムージング曲線を表示
+                if 'x_smooth' in self.calc_context:
+                    self.ax.plot(self.calc_context['x_smooth'], self.calc_context['y_smooth'], color='orange', linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
                 
                 self.ax.axvspan(d_r[0], d_r[1], color='orange', alpha=0.1, label='Search Region')
-                self.ax.plot(onset_x, onset_y, 'bx', markersize=10, markeredgewidth=3, zorder=6, label='Deriv Onset')
-                self.ax.axvline(onset_x, color='orange', linestyle='--', alpha=0.8)
 
-            # Common: Result Arrow
-            gap = abs(onset_x - peak_x)
-            arrow_y = (peak_y + onset_y) / 2
-            self.ax.annotate(f'Eg = {gap:.2f} eV', xy=(peak_x, arrow_y), xytext=(onset_x, arrow_y),
-                             arrowprops=dict(arrowstyle='<->', color='purple', lw=2),
-                             ha='center', va='bottom', fontsize=12, color='purple', fontweight='bold')
-            self.lbl_res_gap.configure(text=f"Eg: {gap:.3f} eV ({mode})")
             self.ax.legend(); self.canvas.draw()
 
         except Exception as e: messagebox.showerror("Calc Error", str(e))
+
+    def find_and_display_candidates(self, search_min, search_max, y_data, peak_x, popt_base=None):
+        """候補探索 & ドロップダウン更新のヘルパー関数"""
+        # 全体スムージング
+        target_window = 21 # 少し細かく見る
+        w_len = min(target_window, len(y_data))
+        if w_len % 2 == 0: w_len -= 1
+        if w_len < 3: w_len = 3
+        y_smooth_all = savgol_filter(y_data, window_length=w_len, polyorder=2)
+        
+        # 範囲切り出し
+        mask_search = (self.energy >= search_min) & (self.energy <= search_max)
+        x_s = self.energy[mask_search]
+        y_s_smooth = y_smooth_all[mask_search]
+        
+        # コンテキスト保存 (Derivative用)
+        self.calc_context.update({'x_smooth': x_s, 'y_smooth': y_s_smooth})
+        
+        if len(x_s) < 5: raise ValueError("探索範囲のデータが不足しています")
+        
+        # 2次微分
+        d2y = np.gradient(np.gradient(y_s_smooth, x_s), x_s)
+        
+        # ピーク検出 (正の値のみ)
+        peaks, properties = find_peaks(d2y, height=0)
+        
+        # 候補リスト作成
+        self.candidates = []
+        if len(peaks) > 0:
+            for p_idx in peaks:
+                cx = x_s[p_idx]
+                cy = y_s_smooth[p_idx]
+                score = properties['peak_heights'][list(peaks).index(p_idx)]
+                self.candidates.append((cx, cy, score))
+            # スコア順ソート
+            self.candidates.sort(key=lambda x: x[2], reverse=True)
+            self.candidates = self.candidates[:5] # Top 5
+        else:
+            # 見つからなかった場合のフォールバック (範囲中央など)
+            mid_idx = len(x_s) // 2
+            self.candidates = [(x_s[mid_idx], y_s_smooth[mid_idx], 0)]
+
+        # ドロップダウン更新
+        combo_values = []
+        for i, (cx, cy, score) in enumerate(self.candidates):
+            gap_val = abs(cx - peak_x)
+            combo_values.append(f"{i+1}. Eg={gap_val:.3f} eV (Score={score:.1f})")
+        
+        self.combo_candidates.configure(values=combo_values)
+        self.combo_candidates.set(combo_values[0])
+        
+        # トップ候補を描画
+        best_x, best_y, _ = self.candidates[0]
+        self.draw_result_marker(best_x, best_y, abs(best_x - peak_x), "Best Candidate")
+
+    def on_candidate_selected(self, choice):
+        """候補選択時の再描画処理"""
+        if not self.candidates or not self.calc_context: return
+        try:
+            # 選択されたインデックス
+            idx = int(choice.split(".")[0]) - 1
+            cx, cy, _ = self.candidates[idx]
+            
+            # 再描画フロー
+            self.plot_base_graph() # ベースクリア
+            
+            # コンテキストから復元
+            peak_x = self.calc_context['peak_x']
+            peak_y = self.calc_context['peak_y']
+            popt_gauss = self.calc_context['popt_gauss']
+            mode = self.calc_context['mode']
+            pk_min = float(self.bg_peak_min.get()); pk_max = float(self.bg_peak_max.get())
+
+            # Peak & Gauss
+            if popt_gauss is not None:
+                x_fine = np.linspace(pk_min, pk_max, 100)
+                self.ax.plot(x_fine, gaussian_func(x_fine, *popt_gauss), 'lime', linestyle='--', linewidth=1.5)
+            self.ax.plot(peak_x, peak_y, 'g*', markersize=15, zorder=5)
+            self.ax.axvline(peak_x, color='green', linestyle=':', alpha=0.6)
+            self.ax.axvspan(pk_min, pk_max, color='green', alpha=0.1)
+
+            # Mode specific redraw
+            if mode == "Hybrid Fit":
+                popt_base = self.calc_context['popt_base']
+                popt_sl = self.calc_context['popt_sl']
+                x_plot = np.linspace(min(self.energy), max(self.energy), 200)
+                self.ax.plot(x_plot, linear_func(x_plot, *popt_base), 'b--', alpha=0.3)
+                self.ax.plot(x_plot, linear_func(x_plot, *popt_sl), 'r--', alpha=0.3)
+                self.ax.axvspan(self.calc_context['base_r'][0], self.calc_context['base_r'][1], color='blue', alpha=0.1)
+                self.ax.axvspan(self.calc_context['sl_r'][0], self.calc_context['sl_r'][1], color='red', alpha=0.1)
+                
+            elif mode == "Derivative":
+                if 'x_smooth' in self.calc_context:
+                    self.ax.plot(self.calc_context['x_smooth'], self.calc_context['y_smooth'], color='orange', linestyle=':', linewidth=2, alpha=0.8)
+            
+            # Draw Marker
+            self.draw_result_marker(cx, cy, abs(cx - peak_x), "Selected Candidate")
+            self.ax.legend(); self.canvas.draw()
+            
+        except Exception as e: print(f"Selection Error: {e}")
+
+    def draw_result_marker(self, x, y, gap, label):
+        """結果マーカー描画"""
+        peak_x = self.calc_context['peak_x']
+        peak_y = self.calc_context['peak_y']
+        
+        self.ax.plot(x, y, 'bx', markersize=10, markeredgewidth=3, zorder=6, label=label)
+        self.ax.axvline(x, color='orange', linestyle='--', alpha=0.8)
+        
+        arrow_y = (peak_y + y) / 2
+        self.ax.annotate(f'Eg = {gap:.2f} eV', xy=(peak_x, arrow_y), xytext=(x, arrow_y),
+                         arrowprops=dict(arrowstyle='<->', color='purple', lw=2),
+                         ha='center', va='bottom', fontsize=12, color='purple', fontweight='bold')
+        self.lbl_res_gap.configure(text=f"Eg: {gap:.3f} eV")
 
     def on_closing(self):
         plt.close('all'); self.quit(); self.destroy()
