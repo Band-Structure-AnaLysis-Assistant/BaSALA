@@ -58,7 +58,7 @@ def calculate_shirley_bg(x, y, tol=1e-5, max_iters=50):
 class XPS_VB_Edge_App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("XPS Analysis Suite - v1.4 (Segmented Fit)")
+        self.title("XPS Analysis Suite - v1.5 (Auto Linear Fit)")
         self.geometry("1280x900")
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -79,7 +79,7 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.sidebar = ctk.CTkFrame(self, width=340, corner_radius=0)
         self.sidebar.pack(side="left", fill="y", padx=0, pady=0)
 
-        self.logo_label = ctk.CTkLabel(self.sidebar, text="XPS Analysis\nv1.4", font=ctk.CTkFont(size=24, weight="bold"))
+        self.logo_label = ctk.CTkLabel(self.sidebar, text="XPS Analysis\nv1.5", font=ctk.CTkFont(size=24, weight="bold"))
         self.logo_label.pack(padx=20, pady=(20, 10))
 
         # Common Area
@@ -132,19 +132,19 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.vbm_label.pack(pady=5)
 
     def _init_bandgap_tab(self):
-        """Band Gap Tab with Segmented Fit"""
+        """Band Gap Tab"""
         self.bg_tab_frame = ctk.CTkFrame(self.tab_bg, fg_color="transparent")
         self.bg_tab_frame.pack(fill="both", expand=True)
 
-        # ★ モード切替に "Segmented Fit" を追加
+        # ★ モード切替: Segmented FitをAuto Linearに変更
         self.bg_mode_var = ctk.StringVar(value="Linear Fit")
         self.seg_bg_mode = ctk.CTkSegmentedButton(self.bg_tab_frame, 
-                                                  values=["Linear Fit", "Segmented Fit", "Derivative"], 
+                                                  values=["Linear Fit", "Auto Linear", "Derivative"], 
                                                   variable=self.bg_mode_var, command=self.update_bg_ui)
         self.seg_bg_mode.pack(pady=10, padx=10, fill="x")
         self.seg_bg_mode.set("Linear Fit")
 
-        # 1. Main Peak (Always Visible)
+        # 1. Main Peak
         ctk.CTkLabel(self.bg_tab_frame, text="1. Main Peak (Eg Reference):", font=("Roboto", 11)).pack(anchor="w", padx=5)
         self.p_frame = ctk.CTkFrame(self.bg_tab_frame, fg_color="transparent")
         self.p_frame.pack(fill="x", padx=5)
@@ -157,7 +157,7 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.bg_input_container = ctk.CTkFrame(self.bg_tab_frame, fg_color="transparent")
         self.bg_input_container.pack(fill="x", pady=5)
 
-        # --- A. Linear Mode UI ---
+        # --- A. Manual Linear UI ---
         self.frame_linear = ctk.CTkFrame(self.bg_input_container, fg_color="transparent")
         ctk.CTkLabel(self.frame_linear, text="2. Loss Base (Flat):", font=("Roboto", 11)).pack(anchor="w", padx=5, pady=(5,0))
         self.b_frame = ctk.CTkFrame(self.frame_linear, fg_color="transparent"); self.b_frame.pack(fill="x", padx=5)
@@ -169,7 +169,7 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.bg_slope_min = ctk.CTkEntry(self.s_frame, width=50); self.bg_slope_min.pack(side="left"); ctk.CTkLabel(self.s_frame, text="-").pack(side="left"); self.bg_slope_max = ctk.CTkEntry(self.s_frame, width=50); self.bg_slope_max.pack(side="left")
         ctk.CTkButton(self.s_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("bg_slope")).pack(side="right")
 
-        # --- B. Single Range UI (Derivative / Segmented) ---
+        # --- B. Single Range UI (Auto Linear / Derivative) ---
         self.frame_single = ctk.CTkFrame(self.bg_input_container, fg_color="transparent")
         ctk.CTkLabel(self.frame_single, text="2. Onset Search Region:", font=("Roboto", 11)).pack(anchor="w", padx=5, pady=(5,0))
         ctk.CTkLabel(self.frame_single, text="(Cover both Background & Rising edge)", font=("Roboto", 10), text_color="gray").pack(anchor="w", padx=5)
@@ -295,7 +295,7 @@ class XPS_VB_Edge_App(ctk.CTk):
         return self.intensity_corrected if (self.chk_shirley_var.get() and self.intensity_corrected is not None) else self.intensity
 
     def calculate(self):
-        """VBM Analysis"""
+        """VBM Analysis (Linear Intersection)"""
         if self.energy is None: return
         try:
             y_data = self.get_current_intensity()
@@ -322,7 +322,7 @@ class XPS_VB_Edge_App(ctk.CTk):
         except Exception as e: messagebox.showerror("Calc Error", str(e))
 
     def calculate_bandgap(self):
-        """Band Gap (Linear / Segmented / Derivative)"""
+        """Band Gap (Linear / Auto Linear / Derivative)"""
         if self.energy is None: return
         try:
             y_data = self.get_current_intensity()
@@ -352,14 +352,19 @@ class XPS_VB_Edge_App(ctk.CTk):
 
             onset_x, onset_y, gap = 0, 0, 0
 
-            # --- Calculation based on Mode ---
+            # ------------------------------------
+            # Logic Branching
+            # ------------------------------------
             if mode == "Linear Fit":
+                # A. Manual Linear
                 base_r = (float(self.bg_base_min.get()), float(self.bg_base_max.get()))
                 sl_r = (float(self.bg_slope_min.get()), float(self.bg_slope_max.get()))
                 mask_base = (self.energy >= base_r[0]) & (self.energy <= base_r[1])
-                popt_base, _ = curve_fit(linear_func, self.energy[mask_base], y_data[mask_base])
                 mask_sl = (self.energy >= sl_r[0]) & (self.energy <= sl_r[1])
+                
+                popt_base, _ = curve_fit(linear_func, self.energy[mask_base], y_data[mask_base])
                 popt_sl, _ = curve_fit(linear_func, self.energy[mask_sl], y_data[mask_sl])
+                
                 onset_x = (popt_sl[1] - popt_base[1]) / (popt_base[0] - popt_sl[0])
                 onset_y = linear_func(onset_x, *popt_base)
                 
@@ -370,66 +375,56 @@ class XPS_VB_Edge_App(ctk.CTk):
                 self.ax.axvspan(sl_r[0], sl_r[1], color='red', alpha=0.1)
                 self.ax.plot(onset_x, onset_y, 'ro', markersize=8, zorder=5, label='Linear Onset')
 
-            elif mode == "Segmented Fit":
-                # === Segmented (Piecewise) Linear Fit ===
-                # ユーザーは1つの広い範囲を選択。その中で「最適な折れ点」を探す。
+            elif mode == "Auto Linear":
+                # B. Auto Linear (Calculates Tangent at Max Slope)
                 s_r = (float(self.bg_single_min.get()), float(self.bg_single_max.get()))
+                
+                # 1. 全体スムージングしてから範囲切り出し
+                target_window = 51
+                w_len = min(target_window, len(y_data))
+                if w_len % 2 == 0: w_len -= 1
+                if w_len < 3: w_len = 3
+                y_smooth_all = savgol_filter(y_data, window_length=w_len, polyorder=2)
+                
                 mask_s = (self.energy >= s_r[0]) & (self.energy <= s_r[1])
-                x_s = self.energy[mask_s]; y_s = y_data[mask_s]
+                x_s = self.energy[mask_s]
+                y_s_smooth = y_smooth_all[mask_s] # Use smoothed data for derivative
                 
-                if len(x_s) < 10: raise ValueError("データ点数が少なすぎます")
+                if len(x_s) < 5: raise ValueError("Data too short")
 
-                # 最適な分割点を探索 (Brute-force scan within range)
-                best_rss = float('inf')
-                best_idx = -1
-                best_popt1, best_popt2 = None, None
-
-                # 端っこすぎるとフィッティングできないので10%~90%の範囲をスキャン
-                scan_start = int(len(x_s) * 0.1)
-                scan_end = int(len(x_s) * 0.9)
-
-                for i in range(scan_start, scan_end):
-                    # 分割 (XPSデータは降順かもしれないので注意。ここでは配列順序で分割)
-                    x1, y1 = x_s[:i], y_s[:i]
-                    x2, y2 = x_s[i:], y_s[i:]
-                    
-                    try:
-                        popt1, _ = curve_fit(linear_func, x1, y1)
-                        popt2, _ = curve_fit(linear_func, x2, y2)
-                        
-                        # 残差の合計 (Residual Sum of Squares)
-                        rss = np.sum((y1 - linear_func(x1, *popt1))**2) + np.sum((y2 - linear_func(x2, *popt2))**2)
-                        
-                        if rss < best_rss:
-                            best_rss = rss
-                            best_idx = i
-                            best_popt1 = popt1
-                            best_popt2 = popt2
-                    except: continue
-
-                if best_popt1 is None: raise ValueError("フィッティングに失敗しました")
-
-                # 最良の2直線の交点を計算
-                # y = a1*x + b1, y = a2*x + b2
-                # x = (b2 - b1) / (a1 - a2)
-                a1, b1 = best_popt1
-                a2, b2 = best_popt2
-                onset_x = (b2 - b1) / (a1 - a2)
-                onset_y = linear_func(onset_x, *best_popt1)
+                # 2. 最大傾斜点を見つける (1次微分最大)
+                dy = np.gradient(y_s_smooth, x_s)
+                max_dy_idx = np.argmax(dy) # Positive slope max
                 
-                # グラフ描画
+                # 3. Slope Lineの作成 (最大傾斜点の周辺 ±2点程度でフィッティング)
+                center_idx = max_dy_idx
+                w = 2 
+                idx_start = max(0, center_idx - w)
+                idx_end = min(len(x_s), center_idx + w + 1)
+                
+                popt_sl, _ = curve_fit(linear_func, x_s[idx_start:idx_end], y_s_smooth[idx_start:idx_end])
+                
+                # 4. Base Lineの作成 (選択範囲の最初の20%を使う: BG側と仮定)
+                # XPSは通常 BE降順(左が大)だが、x_sは昇順にソートされているはず
+                # BGはエネルギー低い方(右側)にあるなら x_sの最初の方
+                n_base = max(3, int(len(x_s) * 0.2))
+                popt_base, _ = curve_fit(linear_func, x_s[:n_base], y_s_smooth[:n_base])
+                
+                # 5. 交点
+                onset_x = (popt_sl[1] - popt_base[1]) / (popt_base[0] - popt_sl[0])
+                onset_y = linear_func(onset_x, *popt_base)
+                
+                # Plot
                 self.ax.axvspan(s_r[0], s_r[1], color='orange', alpha=0.1, label='Search Region')
-                
-                # 2本の直線を可視化 (全域に延ばして交差を見やすく)
                 x_plot = np.linspace(min(self.energy), max(self.energy), 200)
-                self.ax.plot(x_plot, linear_func(x_plot, *best_popt1), 'b--', alpha=0.6, label='Best Fit 1')
-                self.ax.plot(x_plot, linear_func(x_plot, *best_popt2), 'r--', alpha=0.6, label='Best Fit 2')
-                self.ax.plot(onset_x, onset_y, 'bx', markersize=10, markeredgewidth=3, zorder=6, label='Segmented Onset')
+                self.ax.plot(x_plot, linear_func(x_plot, *popt_base), 'b--', alpha=0.6, label='Auto Base')
+                self.ax.plot(x_plot, linear_func(x_plot, *popt_sl), 'r--', alpha=0.6, label='Auto Slope')
+                self.ax.plot(onset_x, onset_y, 'ro', markersize=8, zorder=5, label='Auto Onset')
 
             else:
-                # === Derivative Method ===
+                # C. Derivative Method (Max Curvature)
                 d_r = (float(self.bg_single_min.get()), float(self.bg_single_max.get()))
-                # 全体スムージング
+                
                 target_window = 51
                 w_len = min(target_window, len(y_data))
                 if w_len % 2 == 0: w_len -= 1
@@ -440,14 +435,14 @@ class XPS_VB_Edge_App(ctk.CTk):
                 x_d = self.energy[mask_d]
                 y_d_smooth = y_smooth_all[mask_d]
                 
-                if len(x_d) < 5: raise ValueError("データ点数不足")
+                if len(x_d) < 5: raise ValueError("Data too short")
                 
-                # 可視化
                 self.ax.plot(x_d, y_d_smooth, color='orange', linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
                 
                 d2y = np.gradient(np.gradient(y_d_smooth, x_d), x_d)
                 max_d2_idx = np.argmax(d2y)
-                if d2y[max_d2_idx] <= 0: raise ValueError("正の立ち上がりが見つかりません")
+                
+                if d2y[max_d2_idx] <= 0: raise ValueError("正の曲率が見つかりません")
                 
                 onset_x = x_d[max_d2_idx]
                 onset_y = y_d_smooth[max_d2_idx]
