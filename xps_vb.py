@@ -490,13 +490,13 @@ class XPS_VB_Edge_App(ctk.CTk):
         except Exception as e: messagebox.showerror("Calc Error", str(e))
 
     def calculate_bandgap(self):
-        """【Tab 2】バンドギャップ解析"""
+        """【Tab 2】バンドギャップ解析: Linear Fit または Derivative Method"""
         if self.energy is None: return
         try:
             y_data = self.get_current_intensity()
             mode = self.bg_mode_var.get()
             
-            # 1. Main Peak位置 (範囲内の最大値)
+            # --- 共通: Main Peakの特定 ---
             pk_r = (float(self.bg_peak_min.get()), float(self.bg_peak_max.get()))
             mask_pk = (self.energy >= pk_r[0]) & (self.energy <= pk_r[1])
             if not np.any(mask_pk): raise ValueError("Peak範囲にデータがありません")
@@ -536,48 +536,50 @@ class XPS_VB_Edge_App(ctk.CTk):
                 self.ax.plot(onset_x, onset_y, 'ro', markersize=8, zorder=5, label='Linear Onset')
 
             else:
-                # === Method B: 2次微分法 (強スムージング) ===
+                # === Method B: 2次微分法 (全体スムージング版) ===
                 d_r = (float(self.bg_deriv_min.get()), float(self.bg_deriv_max.get()))
+                
+                # 1. まず全体をスムージングする (端点誤差を防ぐため)
+                # データ点数が少ない場合は調整
+                target_window = 51
+                w_len = min(target_window, len(y_data))
+                if w_len % 2 == 0: w_len -= 1
+                if w_len < 3: w_len = 3
+                
+                # 全データに対してフィルタ適用
+                y_smooth_all = savgol_filter(y_data, window_length=w_len, polyorder=2)
+
+                # 2. 必要な範囲だけ切り出す
                 mask_d = (self.energy >= d_r[0]) & (self.energy <= d_r[1])
                 x_d = self.energy[mask_d]
-                y_d = y_data[mask_d]
+                
+                # 切り出した部分に対応するスムージング済みデータ
+                y_d_smooth = y_smooth_all[mask_d] 
                 
                 if len(x_d) < 5: raise ValueError("微分解析用のデータ点数が少なすぎます")
 
-                # 1. 強力なスムージング
-                # ノイズを消すため、窓幅を大きく取る (例: 51点 or データ長の半分)
-                # これにより大きな曲率の変化(オンセット)だけを捉える
-                target_window = 51 
-                w_len = min(target_window, len(x_d)) 
-                if w_len % 2 == 0: w_len -= 1 # 奇数化
-                if w_len < 3: w_len = 3 
-                
-                # 平滑化曲線を計算
-                y_smooth = savgol_filter(y_d, window_length=w_len, polyorder=2)
-                
-                # ★ 可視化: どのようにスムージングされたか表示
-                self.ax.plot(x_d, y_smooth, color='orange', linestyle=':', linewidth=2, alpha=0.7, label='Smoothed')
+                # ★ 可視化: 選択範囲のスムージング曲線を表示
+                self.ax.plot(x_d, y_d_smooth, color='orange', linestyle=':', linewidth=2, alpha=0.8, label='Smoothed (Slice)')
 
-                # 2. 2次微分 (Gradient x2)
-                d2y = np.gradient(np.gradient(y_smooth, x_d), x_d)
+                # 3. 2次微分 (切り出した滑らかなデータに対して)
+                d2y = np.gradient(np.gradient(y_d_smooth, x_d), x_d)
                 
-                # 3. 最大値探索 (正の曲率のみ)
+                # 4. 最大値探索
                 max_d2_idx = np.argmax(d2y)
                 max_val = d2y[max_d2_idx]
                 
-                # 安全装置: 2次微分が負なら立ち上がりではないと判断
                 if max_val <= 0:
                     raise ValueError("選択範囲内に明確な立ち上がり(正の曲率)が見つかりません。")
 
                 onset_x = x_d[max_d2_idx]
-                onset_y = y_d[max_d2_idx] # 平滑化前のY値を使用
+                onset_y = y_d_smooth[max_d2_idx] # 平滑化後のY値を採用
                 gap = abs(onset_x - peak_x)
 
                 self.ax.axvspan(d_r[0], d_r[1], color='orange', alpha=0.1, label='Search Region')
                 self.ax.plot(onset_x, onset_y, 'bx', markersize=10, markeredgewidth=3, zorder=6, label='Deriv Onset')
                 self.ax.axvline(onset_x, color='orange', linestyle='--', alpha=0.8)
 
-            # 結果矢印の描画
+            # 共通: 矢印
             arrow_y = (peak_y + onset_y) / 2
             self.ax.annotate(f'Eg = {gap:.2f} eV', xy=(peak_x, arrow_y), xytext=(onset_x, arrow_y),
                              arrowprops=dict(arrowstyle='<->', color='purple', lw=2),
