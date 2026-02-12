@@ -623,6 +623,10 @@ class XPS_VB_Edge_App(ctk.CTk):
                 
                 # 3. 最大値探索
                 max_d2_idx = np.argmax(d2y)
+                max_val = d2y[max_d2_idx] # 最大値そのものを取得
+                
+                if max_val <= 0:
+                    raise ValueError("選択範囲内に有効な立ち上がり（正の曲率）が見つかりません。\nもっと広い範囲、または立ち上がりを含む範囲を選択してください。")
                 onset_x = x_d[max_d2_idx]
                 onset_y = y_d[max_d2_idx]
                 gap = abs(onset_x - peak_x)
