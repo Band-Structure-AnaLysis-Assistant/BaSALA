@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.widgets import SpanSelector
 from scipy.optimize import curve_fit
+from scipy.signal import savgol_filter
 import os
 
 # ==========================================
@@ -153,8 +154,8 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.tabview.pack(padx=10, pady=10, fill="both", expand=True)
         
         # タブの追加
-        self.tab_analysis = self.tabview.add("Analysis")       # VBM解析用
-        self.tab_bg = self.tabview.add("Band Gap")             # バンドギャップ解析用
+        self.tab_analysis = self.tabview.add("VBM")       # VBM解析用
+        self.tab_bg = self.tabview.add("Eg")             # バンドギャップ解析用
         self.tab_graph = self.tabview.add("Graph Settings")    # 見た目設定用
 
         # 各タブの中身を構築
@@ -559,66 +560,106 @@ class XPS_VB_Edge_App(ctk.CTk):
             messagebox.showerror("Calc Error", f"解析エラー:\n{e}")
 
     def calculate_bandgap(self):
-        """【Tab 2】バンドギャップ解析 (Energy Loss Onset - Main Peak) を実行"""
+        """【Tab 2】バンドギャップ解析 (Linear Fit & 2nd Derivative)"""
         if self.energy is None: return
         try:
-            y_data = self.get_current_intensity()
+            # Shirley ONなら補正データを使用
+            if self.chk_shirley_var.get() and self.intensity_corrected is not None:
+                y_data = self.intensity_corrected
+            else:
+                y_data = self.intensity
 
-            # 入力値取得
+            # --- 共通: メインピーク位置の特定 ---
             pk_r = (float(self.bg_peak_min.get()), float(self.bg_peak_max.get()))
-            base_r = (float(self.bg_base_min.get()), float(self.bg_base_max.get()))
-            sl_r = (float(self.bg_slope_min.get()), float(self.bg_slope_max.get()))
-
-            # 1. Main Peak位置の特定（指定範囲内の最大値）
             mask_pk = (self.energy >= pk_r[0]) & (self.energy <= pk_r[1])
-            if not np.any(mask_pk): raise ValueError("Peak範囲にデータがありません")
+            if not np.any(mask_pk): raise ValueError("Peak範囲データなし")
             
             subset_idx = np.where(mask_pk)[0]
-            max_local_idx = np.argmax(y_data[subset_idx])
-            peak_idx = subset_idx[max_local_idx] # 全体インデックスに変換
+            peak_idx = subset_idx[np.argmax(y_data[subset_idx])]
             peak_x = self.energy[peak_idx]
             peak_y = y_data[peak_idx]
 
-            # 2. Loss Onsetの計算（交点法）
+            # ==========================================
+            # Method A: 直線外挿法 (Linear Intersection)
+            # ==========================================
+            base_r = (float(self.bg_base_min.get()), float(self.bg_base_max.get()))
+            sl_r = (float(self.bg_slope_min.get()), float(self.bg_slope_max.get()))
+
             # Base Fit
             mask_base = (self.energy >= base_r[0]) & (self.energy <= base_r[1])
-            if not np.any(mask_base): raise ValueError("Base範囲にデータがありません")
             popt_base, _ = curve_fit(linear_func, self.energy[mask_base], y_data[mask_base])
 
             # Slope Fit
             mask_sl = (self.energy >= sl_r[0]) & (self.energy <= sl_r[1])
-            if not np.any(mask_sl): raise ValueError("Slope範囲にデータがありません")
             popt_sl, _ = curve_fit(linear_func, self.energy[mask_sl], y_data[mask_sl])
 
-            # Intersection
-            onset_x = (popt_sl[1] - popt_base[1]) / (popt_base[0] - popt_sl[0])
-            onset_y = linear_func(onset_x, *popt_base)
+            # 交点 (Onset)
+            onset_linear_x = (popt_sl[1] - popt_base[1]) / (popt_base[0] - popt_sl[0])
+            onset_linear_y = linear_func(onset_linear_x, *popt_base)
+            gap_linear = abs(onset_linear_x - peak_x)
 
-            # 3. Band Gap計算 (差分)
-            gap = abs(onset_x - peak_x)
-            self.lbl_res_gap.configure(text=f"Eg: {gap:.3f} eV")
+            # ==========================================
+            # Method B: 2次微分法 (BGの傾き変化点)
+            # ==========================================
+            # Loss領域全体を含む範囲 (Base範囲の端 〜 Slope範囲の端)
+            deriv_region_min = min(base_r[0], sl_r[0])
+            deriv_region_max = max(base_r[1], sl_r[1])
+            
+            # 解析用マスク
+            mask_d = (self.energy >= deriv_region_min) & (self.energy <= deriv_region_max)
+            x_d = self.energy[mask_d]
+            y_d = y_data[mask_d]
 
-            # --- グラフ更新 ---
+            if len(x_d) < 10: raise ValueError("微分解析用のデータ点数が少なすぎます")
+
+            # 1. スムージング (Savitzky-Golay filter)
+            # window_lengthはデータ点数に合わせて調整 (奇数である必要あり)
+            window_len = min(15, len(x_d) - 2)
+            if window_len % 2 == 0: window_len -= 1
+            y_smooth = savgol_filter(y_d, window_length=window_len, polyorder=3)
+
+            # 2. 2次微分 (np.gradientを2回)
+            # xは降順(XPS)かもしれないので、dxの符号に注意
+            dy = np.gradient(y_smooth, x_d)
+            d2y = np.gradient(dy, x_d)
+
+            # 3. 2次微分の最大値を探す
+            # 立ち上がり(傾きの変化が最大) = 2次微分が正の最大値を持つ点
+            # ※ ノイズで変なところを拾わないよう、y_dがある程度大きい部分に限定するなどの工夫も可
+            max_d2_idx = np.argmax(d2y)
+            onset_deriv_x = x_d[max_d2_idx]
+            onset_deriv_y = y_d[max_d2_idx] # 元データのY値
+            
+            gap_deriv = abs(onset_deriv_x - peak_x)
+
+            # ==========================================
+            # 結果表示 & 描画
+            # ==========================================
+            result_text = f"Linear Eg: {gap_linear:.2f} eV\nDeriv Eg: {gap_deriv:.2f} eV"
+            self.lbl_res_gap.configure(text=result_text)
+
             self.plot_base_graph()
+            
+            # --- Linear Plot ---
             x_plot = np.linspace(min(self.energy), max(self.energy), 200)
-
-            # メインピーク位置
             self.ax.plot(peak_x, peak_y, 'g*', markersize=15, zorder=5, label='Main Peak')
             self.ax.axvline(peak_x, color='green', linestyle=':', alpha=0.6)
 
-            # Loss Onsetフィッティング
-            self.ax.plot(x_plot, linear_func(x_plot, *popt_base), 'b--', label='Loss Base')
-            self.ax.plot(x_plot, linear_func(x_plot, *popt_sl), 'r--', label='Loss Slope')
-            self.ax.plot(onset_x, onset_y, 'ro', markersize=10, zorder=5, label='Loss Onset')
-            self.ax.axvline(onset_x, color='red', linestyle=':', alpha=0.6)
+            self.ax.plot(x_plot, linear_func(x_plot, *popt_base), 'b--', alpha=0.5, label='Linear: Base')
+            self.ax.plot(x_plot, linear_func(x_plot, *popt_sl), 'r--', alpha=0.5, label='Linear: Slope')
+            self.ax.plot(onset_linear_x, onset_linear_y, 'ro', markersize=8, zorder=5, label='Linear Onset')
 
-            # バンドギャップを示す矢印
-            arrow_y = (peak_y + onset_y) / 2
-            self.ax.annotate(f'Eg = {gap:.2f} eV', xy=(peak_x, arrow_y), xytext=(onset_x, arrow_y),
+            # --- Derivative Plot ---
+            self.ax.plot(onset_deriv_x, onset_deriv_y, 'bx', markersize=10, markeredgewidth=3, zorder=6, label='Deriv Onset (Kink)')
+            self.ax.axvline(onset_deriv_x, color='orange', linestyle='--', alpha=0.8)
+
+            # 矢印 (今回はLinearの結果に合わせるが、好みで変更可)
+            arrow_y = (peak_y + onset_linear_y) / 2
+            self.ax.annotate(f'Eg(Lin) = {gap_linear:.2f} eV', xy=(peak_x, arrow_y), xytext=(onset_linear_x, arrow_y),
                              arrowprops=dict(arrowstyle='<->', color='purple', lw=2),
                              ha='center', va='bottom', fontsize=12, color='purple', fontweight='bold')
 
-            # 範囲の可視化
+            # 範囲可視化
             self.ax.axvspan(pk_r[0], pk_r[1], color='green', alpha=0.1)
             self.ax.axvspan(base_r[0], base_r[1], color='blue', alpha=0.1)
             self.ax.axvspan(sl_r[0], sl_r[1], color='red', alpha=0.1)
