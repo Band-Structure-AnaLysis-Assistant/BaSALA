@@ -63,7 +63,8 @@ def calculate_shirley_bg(x, y, tol=1e-5, max_iters=50):
 class XPS_VB_Edge_App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("XPS Analysis Suite - v1.8 (Multi-Mode Candidates)")
+        # ★ ウィンドウタイトル変更
+        self.title("Band Structure Analysis")
         self.geometry("1280x900")
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -89,7 +90,8 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.sidebar = ctk.CTkFrame(self, width=340, corner_radius=0)
         self.sidebar.pack(side="left", fill="y", padx=0, pady=0)
 
-        self.logo_label = ctk.CTkLabel(self.sidebar, text="XPS Analysis\nv1.8", font=ctk.CTkFont(size=24, weight="bold"))
+        # ★ ロゴテキスト変更
+        self.logo_label = ctk.CTkLabel(self.sidebar, text="Band Structure\nAnalysis", font=ctk.CTkFont(size=24, weight="bold"))
         self.logo_label.pack(padx=20, pady=(20, 10))
 
         # --- 共通設定 (Load & Shirley) ---
@@ -147,13 +149,13 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.bg_tab_frame = ctk.CTkFrame(self.tab_bg, fg_color="transparent")
         self.bg_tab_frame.pack(fill="both", expand=True)
 
-        # ★ モード切替: Linear / Hybrid / Derivative
-        self.bg_mode_var = ctk.StringVar(value="Linear Fit")
+        # ★ モード切替: Hybridを先頭に
+        self.bg_mode_var = ctk.StringVar(value="Hybrid Fit")
         self.seg_bg_mode = ctk.CTkSegmentedButton(self.bg_tab_frame, 
-                                                  values=["Linear Fit", "Hybrid Fit", "Derivative"], 
+                                                  values=["Hybrid Fit", "Linear Fit", "Derivative"], 
                                                   variable=self.bg_mode_var, command=self.update_bg_ui)
         self.seg_bg_mode.pack(pady=10, padx=10, fill="x")
-        self.seg_bg_mode.set("Linear Fit")
+        self.seg_bg_mode.set("Hybrid Fit")
 
         # 1. Main Peak (共通)
         ctk.CTkLabel(self.bg_tab_frame, text="1. Main Peak (Eg Reference):", font=("Roboto", 11)).pack(anchor="w", padx=5)
@@ -190,7 +192,7 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.bg_single_max = ctk.CTkEntry(self.d_frame, width=50); self.bg_single_max.pack(side="left")
         ctk.CTkButton(self.d_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("bg_single")).pack(side="right")
 
-        # 初期表示: Linear
+        # 初期表示: Hybrid (Linear用UIと同じ)
         self.frame_linear.pack(fill="x", pady=5)
 
         # Buttons
@@ -204,8 +206,8 @@ class XPS_VB_Edge_App(ctk.CTk):
         self.combo_candidates = ctk.CTkComboBox(self.frame_candidates, width=200, command=self.on_candidate_selected)
         self.combo_candidates.pack(side="left", padx=5)
         
-        # 初期状態は隠す
-        self.frame_candidates.pack_forget()
+        # Hybridがデフォルトなので最初から表示しておく
+        self.frame_candidates.pack(pady=5)
         
         # 結果ラベル
         self.lbl_res_gap = ctk.CTkLabel(self.bg_tab_frame, text="Eg: --- eV", font=ctk.CTkFont(size=18, weight="bold"), text_color="#E07A5F")
