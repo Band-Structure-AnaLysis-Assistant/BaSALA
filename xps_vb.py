@@ -321,3 +321,320 @@ class XPS_VB_Edge_App(ctk.CTk):
             fs_tick = int(self.entry_fs_tick.get())
 
             self.ax.set_title(self.ax.get_title(), fontsize=fs_title)
+            self.ax.set_xlabel(self.ax.get_xlabel(), fontsize=fs_label)
+            self.ax.set_ylabel(self.ax.get_ylabel(), fontsize=fs_label)
+            self.ax.tick_params(axis='both', which='major', labelsize=fs_tick)
+
+            # 軸範囲 (XPSなのでX軸は大きい順に入るように注意するが、set_xlimは自動対応する)
+            # ただし反転状態を維持するために大きい値をleft、小さい値をrightにする
+            try:
+                x_min = float(self.lim_x_min.get())
+                x_max = float(self.lim_x_max.get())
+                self.ax.set_xlim(x_max, x_min) # XPS Convention: Max -> Min
+            except ValueError: pass
+
+            try:
+                y_min = float(self.lim_y_min.get())
+                y_max = float(self.lim_y_max.get())
+                self.ax.set_ylim(y_min, y_max)
+            except ValueError: pass
+
+            self.canvas.draw()
+        except Exception as e:
+            messagebox.showerror("Settings Error", f"設定エラー: {e}")
+
+    def activate_selector(self, mode):
+        """マウス範囲選択モードを有効化"""
+        self.selection_mode = mode
+        
+        # 既存のセレクタがあれば消去
+        if self.span: self.span.set_visible(False); self.span = None
+        
+        # モードに応じた色設定 (視認性のため)
+        # VBM用: BG=青, Slope=赤
+        # BandGap用: Peak=緑, Base=青, Slope=赤
+        colors = {
+            'bg': 'blue', 'slope': 'red', 
+            'bg_peak': 'green', 'bg_base': 'blue', 'bg_slope': 'red'
+        }
+        color = colors.get(mode, 'gray')
+        
+        # SpanSelector作成 (グラフ上をドラッグ可能にする)
+        self.span = SpanSelector(self.ax, self.on_select, 'horizontal', useblit=True,
+                                 props=dict(alpha=0.3, facecolor=color), interactive=True, drag_from_anywhere=True)
+        self.canvas.draw()
+
+    def deactivate_selector(self):
+        """マウス範囲選択モードを終了（ズーム機能などを復活）"""
+        if self.span: self.span.set_visible(False); self.span = None
+        self.selection_mode = None
+        self.canvas.draw()
+
+    def on_select(self, vmin, vmax):
+        """ドラッグ終了時に呼ばれる処理。対応するEntryに入力する"""
+        min_val, max_val = sorted([vmin, vmax])
+        val_str_min = f"{min_val:.2f}"
+        val_str_max = f"{max_val:.2f}"
+
+        # 現在のモードに対応するEntryボックスのペアを取得
+        entries = {
+            'bg': (self.entry_bg_min, self.entry_bg_max),
+            'slope': (self.entry_slope_min, self.entry_slope_max),
+            'bg_peak': (self.bg_peak_min, self.bg_peak_max),
+            'bg_base': (self.bg_base_min, self.bg_base_max),
+            'bg_slope': (self.bg_slope_min, self.bg_slope_max)
+        }
+
+        if self.selection_mode in entries:
+            emin, emax = entries[self.selection_mode]
+            emin.delete(0, tk.END); emin.insert(0, val_str_min)
+            emax.delete(0, tk.END); emax.insert(0, val_str_max)
+
+    def on_shirley_toggle(self):
+        """Shirleyチェックボックスが切り替えられた時の処理"""
+        if self.energy is None: return
+        
+        if self.chk_shirley_var.get():
+            try:
+                # 計算実行
+                self.bg_data = calculate_shirley_bg(self.energy, self.intensity)
+                self.intensity_corrected = self.intensity - self.bg_data
+            except Exception as e:
+                messagebox.showerror("Error", f"Shirley Calculation Failed:\n{e}")
+                self.chk_shirley_var.set(False)
+                return
+        else:
+            # OFFになったらリセット
+            self.bg_data = None
+            self.intensity_corrected = None
+            
+        # グラフを再描画して反映
+        self.plot_base_graph()
+
+    # ==========================================
+    # データ入出力 & 計算ロジック
+    # ==========================================
+
+    def load_csv(self):
+        """CSVファイルを読み込む"""
+        file_path = filedialog.askopenfilename(filetypes=[("Data Files", "*.csv *.txt *.dat"), ("All Files", "*.*")])
+        if not file_path: return
+        
+        # 選択された区切り文字
+        sep_map = {", (Comma)": ",", "\\t (Tab)": "\t", "Space": r"\s+"}
+        sep = sep_map[self.sep_option.get()]
+
+        try:
+            # pandasで読み込み
+            self.df = pd.read_csv(file_path, sep=sep, header=None, engine='python')
+            if self.df.shape[1] < 2:
+                raise ValueError("データ列が足りません（2列以上必要）")
+
+            # 数値変換 (エラー値はNaNに)
+            self.energy = pd.to_numeric(self.df.iloc[:, 0], errors='coerce').values
+            self.intensity = pd.to_numeric(self.df.iloc[:, 1], errors='coerce').values
+            
+            # NaNを除去
+            mask = ~np.isnan(self.energy) & ~np.isnan(self.intensity)
+            self.energy = self.energy[mask]; self.intensity = self.intensity[mask]
+
+            if len(self.energy) == 0: raise ValueError("有効な数値データがありません")
+
+            # --- 初期値の自動入力 ---
+            min_e, max_e = np.min(self.energy), np.max(self.energy)
+            
+            # VBMタブの初期値
+            self.entry_bg_min.delete(0, tk.END); self.entry_bg_min.insert(0, f"{min_e:.1f}")
+            self.entry_bg_max.delete(0, tk.END); self.entry_bg_max.insert(0, f"{min_e+2.0:.1f}")
+            self.entry_slope_min.delete(0, tk.END); self.entry_slope_min.insert(0, f"{min_e+3.0:.1f}")
+            self.entry_slope_max.delete(0, tk.END); self.entry_slope_max.insert(0, f"{min_e+5.0:.1f}")
+            
+            # Band Gapタブの初期値 (全域から適当な幅でセット)
+            self.bg_peak_min.delete(0, tk.END); self.bg_peak_min.insert(0, f"{min_e:.1f}")
+            self.bg_peak_max.delete(0, tk.END); self.bg_peak_max.insert(0, f"{min_e+1.0:.1f}")
+            self.bg_base_min.delete(0, tk.END); self.bg_base_min.insert(0, f"{min_e+10.0:.1f}")
+            self.bg_base_max.delete(0, tk.END); self.bg_base_max.insert(0, f"{min_e+12.0:.1f}")
+            self.bg_slope_min.delete(0, tk.END); self.bg_slope_min.insert(0, f"{min_e+13.0:.1f}")
+            self.bg_slope_max.delete(0, tk.END); self.bg_slope_max.insert(0, f"{min_e+15.0:.1f}")
+            
+            # Shirley設定リセット
+            self.chk_shirley_var.set(False)
+            self.intensity_corrected = None
+            self.bg_data = None
+            
+            # Graphタブ設定
+            fname = os.path.basename(file_path)
+            self.entry_title.delete(0, tk.END); self.entry_title.insert(0, f"XPS: {fname}")
+            self.lim_x_min.delete(0, tk.END); self.lim_x_min.insert(0, f"{min_e:.1f}")
+            self.lim_x_max.delete(0, tk.END); self.lim_x_max.insert(0, f"{max_e:.1f}")
+            self.lim_y_min.delete(0, tk.END); self.lim_y_min.insert(0, f"{np.min(self.intensity):.1f}")
+            self.lim_y_max.delete(0, tk.END); self.lim_y_max.insert(0, f"{np.max(self.intensity):.1f}")
+
+            # 描画とボタン有効化
+            self.plot_base_graph()
+            self.calc_btn.configure(state="normal")
+            self.calc_bg_btn.configure(state="normal")
+            
+        except Exception as e:
+            messagebox.showerror("Import Error", str(e))
+
+    def plot_base_graph(self):
+        """ベースとなるスペクトルを描画（計算結果なしの状態）"""
+        self.ax.clear()
+        
+        if self.chk_shirley_var.get() and self.intensity_corrected is not None:
+            # Shirley ON: 生データ(薄い) + 補正データ(濃い) + BG線
+            self.ax.plot(self.energy, self.intensity, color='gray', alpha=0.3, label='Raw Data')
+            self.ax.plot(self.energy, self.bg_data, color='gray', linestyle='--', alpha=0.5, label='Shirley BG')
+            self.ax.plot(self.energy, self.intensity_corrected, color='#4a90e2', linewidth=1.5, label='Corrected')
+        else:
+            # Shirley OFF: 生データのみ
+            self.ax.plot(self.energy, self.intensity, color='#4a90e2', linewidth=1.5, label='Raw Spectrum')
+
+        self.ax.legend()
+        self.ax.grid(True)
+        self.ax.invert_xaxis()
+        self.apply_graph_settings()
+        self.canvas.draw()
+
+    def get_current_intensity(self):
+        """現在使用すべき強度データ（Shirley ONなら補正データ）を返す"""
+        if self.chk_shirley_var.get() and self.intensity_corrected is not None:
+            return self.intensity_corrected
+        return self.intensity
+
+    def calculate(self):
+        """【Tab 1】VBM解析（直線交点法）を実行"""
+        if self.energy is None: return
+        try:
+            y_data = self.get_current_intensity()
+            
+            # 入力値取得
+            bg_start = float(self.entry_bg_min.get())
+            bg_end = float(self.entry_bg_max.get())
+            slope_start = float(self.entry_slope_min.get())
+            slope_end = float(self.entry_slope_max.get())
+
+            # 1. バックグラウンド範囲のフィッティング
+            mask_bg = (self.energy >= bg_start) & (self.energy <= bg_end)
+            if not np.any(mask_bg): raise ValueError("Background範囲にデータがありません")
+            popt_bg, _ = curve_fit(linear_func, self.energy[mask_bg], y_data[mask_bg])
+
+            # 2. 立ち上がり（Slope）範囲のフィッティング
+            mask_slope = (self.energy >= slope_start) & (self.energy <= slope_end)
+            if not np.any(mask_slope): raise ValueError("Slope範囲にデータがありません")
+            popt_slope, _ = curve_fit(linear_func, self.energy[mask_slope], y_data[mask_slope])
+
+            # 3. 交点計算
+            a1, b1 = popt_bg
+            a2, b2 = popt_slope
+            if abs(a1 - a2) < 1e-10: raise ValueError("平行エラー: 2本の直線が平行です")
+
+            vbm_x = (b2 - b1) / (a1 - a2)
+            vbm_y = linear_func(vbm_x, *popt_bg)
+
+            # 結果表示
+            self.vbm_label.configure(text=f"VBM: {vbm_x:.3f} eV")
+
+            # --- グラフ更新 ---
+            self.plot_base_graph() # ベースを描画
+            
+            # フィッティング線を描画
+            x_range = np.linspace(min(self.energy), max(self.energy), 200)
+            self.ax.plot(x_range, linear_func(x_range, *popt_bg), 'b--', alpha=0.8, label='Base Fit')
+            self.ax.plot(x_range, linear_func(x_range, *popt_slope), 'r--', alpha=0.8, label='Slope Fit')
+            
+            # 交点プロット
+            self.ax.plot(vbm_x, vbm_y, 'go', markersize=10, zorder=5, label=f'VBM={vbm_x:.2f}eV')
+            self.ax.axvline(vbm_x, color='green', linestyle=':', alpha=0.8)
+            
+            # 範囲の可視化
+            self.ax.axvspan(bg_start, bg_end, color='blue', alpha=0.1)
+            self.ax.axvspan(slope_start, slope_end, color='red', alpha=0.1)
+
+            self.ax.legend()
+            self.canvas.draw()
+            
+        except Exception as e:
+            messagebox.showerror("Calc Error", f"解析エラー:\n{e}")
+
+    def calculate_bandgap(self):
+        """【Tab 2】バンドギャップ解析 (Energy Loss Onset - Main Peak) を実行"""
+        if self.energy is None: return
+        try:
+            y_data = self.get_current_intensity()
+
+            # 入力値取得
+            pk_r = (float(self.bg_peak_min.get()), float(self.bg_peak_max.get()))
+            base_r = (float(self.bg_base_min.get()), float(self.bg_base_max.get()))
+            sl_r = (float(self.bg_slope_min.get()), float(self.bg_slope_max.get()))
+
+            # 1. Main Peak位置の特定（指定範囲内の最大値）
+            mask_pk = (self.energy >= pk_r[0]) & (self.energy <= pk_r[1])
+            if not np.any(mask_pk): raise ValueError("Peak範囲にデータがありません")
+            
+            subset_idx = np.where(mask_pk)[0]
+            max_local_idx = np.argmax(y_data[subset_idx])
+            peak_idx = subset_idx[max_local_idx] # 全体インデックスに変換
+            peak_x = self.energy[peak_idx]
+            peak_y = y_data[peak_idx]
+
+            # 2. Loss Onsetの計算（交点法）
+            # Base Fit
+            mask_base = (self.energy >= base_r[0]) & (self.energy <= base_r[1])
+            if not np.any(mask_base): raise ValueError("Base範囲にデータがありません")
+            popt_base, _ = curve_fit(linear_func, self.energy[mask_base], y_data[mask_base])
+
+            # Slope Fit
+            mask_sl = (self.energy >= sl_r[0]) & (self.energy <= sl_r[1])
+            if not np.any(mask_sl): raise ValueError("Slope範囲にデータがありません")
+            popt_sl, _ = curve_fit(linear_func, self.energy[mask_sl], y_data[mask_sl])
+
+            # Intersection
+            onset_x = (popt_sl[1] - popt_base[1]) / (popt_base[0] - popt_sl[0])
+            onset_y = linear_func(onset_x, *popt_base)
+
+            # 3. Band Gap計算 (差分)
+            gap = abs(onset_x - peak_x)
+            self.lbl_res_gap.configure(text=f"Eg: {gap:.3f} eV")
+
+            # --- グラフ更新 ---
+            self.plot_base_graph()
+            x_plot = np.linspace(min(self.energy), max(self.energy), 200)
+
+            # メインピーク位置
+            self.ax.plot(peak_x, peak_y, 'g*', markersize=15, zorder=5, label='Main Peak')
+            self.ax.axvline(peak_x, color='green', linestyle=':', alpha=0.6)
+
+            # Loss Onsetフィッティング
+            self.ax.plot(x_plot, linear_func(x_plot, *popt_base), 'b--', label='Loss Base')
+            self.ax.plot(x_plot, linear_func(x_plot, *popt_sl), 'r--', label='Loss Slope')
+            self.ax.plot(onset_x, onset_y, 'ro', markersize=10, zorder=5, label='Loss Onset')
+            self.ax.axvline(onset_x, color='red', linestyle=':', alpha=0.6)
+
+            # バンドギャップを示す矢印
+            arrow_y = (peak_y + onset_y) / 2
+            self.ax.annotate(f'Eg = {gap:.2f} eV', xy=(peak_x, arrow_y), xytext=(onset_x, arrow_y),
+                             arrowprops=dict(arrowstyle='<->', color='purple', lw=2),
+                             ha='center', va='bottom', fontsize=12, color='purple', fontweight='bold')
+
+            # 範囲の可視化
+            self.ax.axvspan(pk_r[0], pk_r[1], color='green', alpha=0.1)
+            self.ax.axvspan(base_r[0], base_r[1], color='blue', alpha=0.1)
+            self.ax.axvspan(sl_r[0], sl_r[1], color='red', alpha=0.1)
+
+            self.ax.legend()
+            self.canvas.draw()
+
+        except Exception as e:
+            messagebox.showerror("Calc Error", f"解析エラー:\n{e}")
+
+    def on_closing(self):
+        """アプリ終了時の処理"""
+        plt.close('all') # メモリ解放
+        self.quit()
+        self.destroy()
+
+if __name__ == "__main__":
+    app = XPS_VB_Edge_App()
+    app.mainloop()
