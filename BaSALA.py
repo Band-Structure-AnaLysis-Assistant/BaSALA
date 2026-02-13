@@ -64,8 +64,8 @@ class BaSALA_App(ctk.CTk):
     def __init__(self):
         super().__init__()
         
-        # ★ ウィンドウタイトル設定 (v2.4)
-        self.title("BaSALA - Band Structure AnaLysis Assistant (v2.4)")
+        # ★ ウィンドウタイトル設定 (v2.5)
+        self.title("BaSALA - Band Structure AnaLysis Assistant (v2.5)")
         self.geometry("1280x900")
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -91,7 +91,7 @@ class BaSALA_App(ctk.CTk):
         self.sidebar = ctk.CTkFrame(self, width=340, corner_radius=0)
         self.sidebar.pack(side="left", fill="y", padx=0, pady=0)
 
-        # ★ ロゴラベル (BaSALA)
+        # ★ ロゴラベル
         self.logo_label = ctk.CTkLabel(
             self.sidebar, 
             text="BaSALA", 
@@ -108,7 +108,7 @@ class BaSALA_App(ctk.CTk):
         )
         self.sub_logo_label.pack(padx=20, pady=(0, 20))
 
-        # --- 共通操作エリア (Load & Shirley) ---
+        # --- 共通操作エリア ---
         self.common_frame = ctk.CTkFrame(self.sidebar)
         self.common_frame.pack(padx=10, pady=5, fill="x")
         
@@ -127,14 +127,14 @@ class BaSALA_App(ctk.CTk):
         self.tabview = ctk.CTkTabview(self.sidebar, width=320)
         self.tabview.pack(padx=10, pady=10, fill="both", expand=True)
         
-        self.tab_vbm = self.tabview.add("VBM")           # Tab 1: VBM解析
-        self.tab_bg = self.tabview.add("Band Gap")       # Tab 2: Band Gap解析
+        self.tab_vbm = self.tabview.add("VBM")
+        self.tab_bg = self.tabview.add("Band Gap")
         
         self._init_vbm_tab()
         self._init_bandgap_tab()
 
     def _init_vbm_tab(self):
-        """Tab 1: VBM解析 (Linear Intersection)"""
+        """Tab 1: VBM解析"""
         frame = ctk.CTkFrame(self.tab_vbm, fg_color="transparent")
         frame.pack(fill="both", expand=True)
         
@@ -167,11 +167,10 @@ class BaSALA_App(ctk.CTk):
         self.vbm_label.pack(pady=5)
 
     def _init_bandgap_tab(self):
-        """Tab 2: Band Gap解析 (Hybrid First)"""
+        """Tab 2: Band Gap解析"""
         self.bg_tab_frame = ctk.CTkFrame(self.tab_bg, fg_color="transparent")
         self.bg_tab_frame.pack(fill="both", expand=True)
 
-        # モード切替: Hybridをデフォルト(左)に配置
         self.bg_mode_var = ctk.StringVar(value="Hybrid Fit")
         self.seg_bg_mode = ctk.CTkSegmentedButton(self.bg_tab_frame, 
                                                   values=["Hybrid Fit", "Linear Fit", "Derivative"], 
@@ -179,7 +178,7 @@ class BaSALA_App(ctk.CTk):
         self.seg_bg_mode.pack(pady=10, padx=10, fill="x")
         self.seg_bg_mode.set("Hybrid Fit")
 
-        # 1. Main Peak (共通)
+        # 1. Main Peak
         ctk.CTkLabel(self.bg_tab_frame, text="1. Main Peak (Eg Reference):", font=("Roboto", 11)).pack(anchor="w", padx=5)
         self.p_frame = ctk.CTkFrame(self.bg_tab_frame, fg_color="transparent")
         self.p_frame.pack(fill="x", padx=5)
@@ -188,14 +187,13 @@ class BaSALA_App(ctk.CTk):
         self.bg_peak_max = ctk.CTkEntry(self.p_frame, width=50); self.bg_peak_max.pack(side="left")
         ctk.CTkButton(self.p_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("bg_peak")).pack(side="right")
 
-        # 入力欄コンテナ
+        # Input Container
         self.bg_input_container = ctk.CTkFrame(self.bg_tab_frame, fg_color="transparent")
         self.bg_input_container.pack(fill="x", pady=5)
 
-        # --- A. Linear / Hybrid Mode UI (2 Ranges) ---
+        # --- A. Linear / Hybrid UI ---
         self.frame_linear = ctk.CTkFrame(self.bg_input_container, fg_color="transparent")
         
-        # Loss Base
         ctk.CTkLabel(self.frame_linear, text="2. Loss Base (Flat):", font=("Roboto", 11)).pack(anchor="w", padx=5, pady=(5,0))
         self.b_frame = ctk.CTkFrame(self.frame_linear, fg_color="transparent"); self.b_frame.pack(fill="x", padx=5)
         self.bg_base_min = ctk.CTkEntry(self.b_frame, width=50); self.bg_base_min.pack(side="left")
@@ -203,7 +201,6 @@ class BaSALA_App(ctk.CTk):
         self.bg_base_max = ctk.CTkEntry(self.b_frame, width=50); self.bg_base_max.pack(side="left")
         ctk.CTkButton(self.b_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("bg_base")).pack(side="right")
         
-        # Loss Slope
         ctk.CTkLabel(self.frame_linear, text="3. Loss Slope (Rise):", font=("Roboto", 11)).pack(anchor="w", padx=5, pady=(5,0))
         self.s_frame = ctk.CTkFrame(self.frame_linear, fg_color="transparent"); self.s_frame.pack(fill="x", padx=5)
         self.bg_slope_min = ctk.CTkEntry(self.s_frame, width=50); self.bg_slope_min.pack(side="left")
@@ -211,10 +208,9 @@ class BaSALA_App(ctk.CTk):
         self.bg_slope_max = ctk.CTkEntry(self.s_frame, width=50); self.bg_slope_max.pack(side="left")
         ctk.CTkButton(self.s_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("bg_slope")).pack(side="right")
 
-        # --- B. Derivative Mode UI (1 Range) ---
+        # --- B. Derivative UI ---
         self.frame_single = ctk.CTkFrame(self.bg_input_container, fg_color="transparent")
         
-        # Onset Region
         ctk.CTkLabel(self.frame_single, text="2. Onset Search Region:", font=("Roboto", 11)).pack(anchor="w", padx=5, pady=(5,0))
         ctk.CTkLabel(self.frame_single, text="(Cover both Background & Rising edge)", font=("Roboto", 10), text_color="gray").pack(anchor="w", padx=5)
         self.d_frame = ctk.CTkFrame(self.frame_single, fg_color="transparent"); self.d_frame.pack(fill="x", padx=5)
@@ -223,7 +219,7 @@ class BaSALA_App(ctk.CTk):
         self.bg_single_max = ctk.CTkEntry(self.d_frame, width=50); self.bg_single_max.pack(side="left")
         ctk.CTkButton(self.d_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("bg_single")).pack(side="right")
 
-        # 初期表示: Linear/Hybrid UI
+        # 初期表示
         self.frame_linear.pack(fill="x", pady=5)
 
         # 共通ボタン
@@ -231,17 +227,15 @@ class BaSALA_App(ctk.CTk):
         self.calc_bg_btn = ctk.CTkButton(self.bg_tab_frame, text="Calculate Band Gap", command=self.calculate_bandgap, fg_color="#E07A5F", state="disabled")
         self.calc_bg_btn.pack(pady=5, fill="x")
         
-        # 候補選択ドロップダウン (Hybrid/Derivで表示)
+        # 候補選択ドロップダウン
         self.frame_candidates = ctk.CTkFrame(self.bg_tab_frame, fg_color="transparent")
-        # ★ ラベルを "Sorted by Eg Size" に変更
-        ctk.CTkLabel(self.frame_candidates, text="Candidates (Sorted by Eg Size):", font=("Roboto", 12)).pack(side="left", padx=5)
+        # ★ ラベルシンプル化
+        ctk.CTkLabel(self.frame_candidates, text="Candidates (Curvature Order):", font=("Roboto", 12)).pack(side="left", padx=5)
         self.combo_candidates = ctk.CTkComboBox(self.frame_candidates, width=200, command=self.on_candidate_selected)
         self.combo_candidates.pack(side="left", padx=5)
         
-        # 初期表示(Hybrid)
         self.frame_candidates.pack(pady=5)
         
-        # 結果ラベル
         self.lbl_res_gap = ctk.CTkLabel(self.bg_tab_frame, text="Eg: --- eV", font=ctk.CTkFont(size=18, weight="bold"), text_color="#E07A5F")
         self.lbl_res_gap.pack(pady=5)
 
@@ -276,7 +270,7 @@ class BaSALA_App(ctk.CTk):
         self.toolbar.update()
 
     # ==========================================
-    # 4. 操作ロジック (イベントハンドラ)
+    # 4. 操作ロジック
     # ==========================================
 
     def auto_scale_y(self):
@@ -293,15 +287,16 @@ class BaSALA_App(ctk.CTk):
         if self.span: self.span.set_visible(False); self.span = None
         
         colors = {
-            'bg': 'blue', 'slope': 'red',             # VBM
-            'bg_peak': 'green',                       # Peak
-            'bg_base': 'blue', 'bg_slope': 'red',     # Linear/Hybrid range
-            'bg_single': 'orange'                     # Deriv range
+            'bg': 'blue', 'slope': 'red',             
+            'bg_peak': 'green',                       
+            'bg_base': 'blue', 'bg_slope': 'red',     
+            'bg_single': 'orange'                     
         }
         color = colors.get(mode, 'gray')
         
+        # ★ 見栄えを良くするため alpha を 0.2 に下げる (より控えめに)
         self.span = SpanSelector(self.ax, self.on_select, 'horizontal', useblit=True, 
-                                 props=dict(alpha=0.3, facecolor=color), interactive=True, drag_from_anywhere=True)
+                                 props=dict(alpha=0.2, facecolor=color), interactive=True, drag_from_anywhere=True)
         self.canvas.draw()
 
     def deactivate_selector(self):
@@ -358,20 +353,26 @@ class BaSALA_App(ctk.CTk):
 
             min_e, max_e = np.min(self.energy), np.max(self.energy)
             
-            # Defaults
+            # ★ 初期範囲を「最小・共通・見栄え良く」設定 (幅1.0eV程度に統一)
+            # VBM Tab
             self.entry_bg_min.delete(0, tk.END); self.entry_bg_min.insert(0, f"{min_e:.1f}")
-            self.entry_bg_max.delete(0, tk.END); self.entry_bg_max.insert(0, f"{min_e+2.0:.1f}")
-            self.entry_slope_min.delete(0, tk.END); self.entry_slope_min.insert(0, f"{min_e+3.0:.1f}")
-            self.entry_slope_max.delete(0, tk.END); self.entry_slope_max.insert(0, f"{min_e+5.0:.1f}")
+            self.entry_bg_max.delete(0, tk.END); self.entry_bg_max.insert(0, f"{min_e+1.0:.1f}") # 幅1.0
+            self.entry_slope_min.delete(0, tk.END); self.entry_slope_min.insert(0, f"{min_e+1.5:.1f}")
+            self.entry_slope_max.delete(0, tk.END); self.entry_slope_max.insert(0, f"{min_e+2.5:.1f}") # 幅1.0
             
+            # Band Gap Tab (Peakは鋭いので0.8eV幅)
             self.bg_peak_min.delete(0, tk.END); self.bg_peak_min.insert(0, f"{min_e:.1f}")
-            self.bg_peak_max.delete(0, tk.END); self.bg_peak_max.insert(0, f"{min_e+1.0:.1f}")
-            self.bg_base_min.delete(0, tk.END); self.bg_base_min.insert(0, f"{min_e+10.0:.1f}")
-            self.bg_base_max.delete(0, tk.END); self.bg_base_max.insert(0, f"{min_e+12.0:.1f}")
-            self.bg_slope_min.delete(0, tk.END); self.bg_slope_min.insert(0, f"{min_e+13.0:.1f}")
-            self.bg_slope_max.delete(0, tk.END); self.bg_slope_max.insert(0, f"{min_e+15.0:.1f}")
-            self.bg_single_min.delete(0, tk.END); self.bg_single_min.insert(0, f"{min_e+10.0:.1f}")
-            self.bg_single_max.delete(0, tk.END); self.bg_single_max.insert(0, f"{min_e+15.0:.1f}")
+            self.bg_peak_max.delete(0, tk.END); self.bg_peak_max.insert(0, f"{min_e+0.8:.1f}") 
+            
+            # Linear / Hybrid Fitting Ranges (相対位置で見栄え良く配置)
+            self.bg_base_min.delete(0, tk.END); self.bg_base_min.insert(0, f"{min_e+4.0:.1f}")
+            self.bg_base_max.delete(0, tk.END); self.bg_base_max.insert(0, f"{min_e+5.0:.1f}") # 幅1.0
+            self.bg_slope_min.delete(0, tk.END); self.bg_slope_min.insert(0, f"{min_e+5.5:.1f}")
+            self.bg_slope_max.delete(0, tk.END); self.bg_slope_max.insert(0, f"{min_e+6.5:.1f}") # 幅1.0
+            
+            # Derivative Search Range (Onsetを探すため少し広めに3.0eV幅)
+            self.bg_single_min.delete(0, tk.END); self.bg_single_min.insert(0, f"{min_e+4.0:.1f}")
+            self.bg_single_max.delete(0, tk.END); self.bg_single_max.insert(0, f"{min_e+7.0:.1f}")
             
             self.chk_shirley_var.set(False); self.intensity_corrected = None; self.bg_data = None
             
@@ -400,7 +401,7 @@ class BaSALA_App(ctk.CTk):
     # ==========================================
 
     def calculate(self):
-        """【Tab 1】VBM解析 (Linear Intersection)"""
+        """【Tab 1】VBM解析"""
         if self.energy is None: return
         try:
             y_data = self.get_current_intensity()
@@ -432,7 +433,7 @@ class BaSALA_App(ctk.CTk):
         except Exception as e: messagebox.showerror("Calc Error", str(e))
 
     def calculate_bandgap(self):
-        """【Tab 2】Band Gap解析 (Linear / Hybrid / Derivative)"""
+        """【Tab 2】Band Gap解析"""
         if self.energy is None: return
         try:
             y_data = self.get_current_intensity()
@@ -519,7 +520,7 @@ class BaSALA_App(ctk.CTk):
         except Exception as e: messagebox.showerror("Calc Error", str(e))
 
     def find_and_display_candidates(self, search_min, search_max, y_data, peak_x):
-        """候補探索 & ドロップダウン更新 (Eg順)"""
+        """候補探索 & ドロップダウン更新 (曲率順・スコア非表示)"""
         target_window = 21 
         w_len = min(target_window, len(y_data))
         if w_len % 2 == 0: w_len -= 1
@@ -545,19 +546,15 @@ class BaSALA_App(ctk.CTk):
                 raw_score = properties['peak_heights'][list(peaks).index(p_idx)]
                 self.candidates.append((cx, cy, raw_score))
             
-            # 1. まず曲率(スコア)が大きい順にソートして、上位5つを残す (ノイズ除去)
+            # ★ 1. 曲率（生スコア）が大きい順にソート (最もエッジらしいものを上に)
             self.candidates.sort(key=lambda x: x[2], reverse=True)
             self.candidates = self.candidates[:5]
-            
-            # 2. 残った5つを、バンドギャップ(Eg)が大きい順にソートし直す
-            # Eg = abs(cx - peak_x)
-            self.candidates.sort(key=lambda x: abs(x[0] - peak_x), reverse=True)
             
         else:
             mid_idx = len(x_s) // 2
             self.candidates = [(x_s[mid_idx], y_s_smooth[mid_idx], 0)]
 
-        # --- 表示 (数値のみ、スコアなし) ---
+        # --- 表示 (数値のみ、Best/Scoreなし) ---
         combo_values = []
         for i, (cx, cy, r_score) in enumerate(self.candidates):
             gap_val = abs(cx - peak_x)
