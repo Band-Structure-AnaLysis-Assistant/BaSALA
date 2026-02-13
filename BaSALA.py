@@ -64,8 +64,8 @@ class BaSALA_App(ctk.CTk):
     def __init__(self):
         super().__init__()
         
-        # ★ ウィンドウタイトル設定 (v2.5)
-        self.title("BaSALA - Band Structure AnaLysis Assistant (v2.5)")
+        # ★ ウィンドウタイトル設定 (v2.9)
+        self.title("BaSALA - Band Structure AnaLysis Assistant (v2.9)")
         self.geometry("1280x900")
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -88,31 +88,35 @@ class BaSALA_App(ctk.CTk):
 
     def _create_sidebar(self):
         """サイドバー（操作パネル）の作成"""
-        self.sidebar = ctk.CTkFrame(self, width=340, corner_radius=0)
+        # サイドバー幅 (スリム仕様 280px)
+        self.sidebar = ctk.CTkFrame(self, width=280, corner_radius=0)
         self.sidebar.pack(side="left", fill="y", padx=0, pady=0)
+        
+        # 中身が増減しても幅が変わらないように固定
+        self.sidebar.pack_propagate(False)
 
-        # ★ ロゴラベル
+        # ロゴラベル
         self.logo_label = ctk.CTkLabel(
             self.sidebar, 
             text="BaSALA", 
-            font=ctk.CTkFont(family="Roboto", size=36, weight="bold")
+            font=ctk.CTkFont(family="Roboto", size=32, weight="bold")
         )
-        self.logo_label.pack(padx=20, pady=(30, 5))
+        self.logo_label.pack(padx=10, pady=(30, 5))
         
         # サブタイトル
         self.sub_logo_label = ctk.CTkLabel(
             self.sidebar, 
             text="Band Structure Analysis Assistant", 
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(size=11), 
             text_color="gray"
         )
-        self.sub_logo_label.pack(padx=20, pady=(0, 20))
+        self.sub_logo_label.pack(padx=10, pady=(0, 20))
 
         # --- 共通操作エリア ---
         self.common_frame = ctk.CTkFrame(self.sidebar)
         self.common_frame.pack(padx=10, pady=5, fill="x")
         
-        self.load_btn = ctk.CTkButton(self.common_frame, text="Open CSV / Text", command=self.load_csv, fg_color="#1f538d")
+        self.load_btn = ctk.CTkButton(self.common_frame, text="Open CSV / Text", command=self.load_csv, fg_color="#1f538d", height=30)
         self.load_btn.pack(padx=5, pady=5, fill="x")
         
         self.sep_option = ctk.CTkComboBox(self.common_frame, values=[", (Comma)", "\\t (Tab)", "Space"], height=24)
@@ -124,7 +128,7 @@ class BaSALA_App(ctk.CTk):
         self.chk_shirley.pack(padx=10, pady=10, anchor="w")
 
         # --- 機能タブ ---
-        self.tabview = ctk.CTkTabview(self.sidebar, width=320)
+        self.tabview = ctk.CTkTabview(self.sidebar, width=260)
         self.tabview.pack(padx=10, pady=10, fill="both", expand=True)
         
         self.tab_vbm = self.tabview.add("VBM")
@@ -141,19 +145,21 @@ class BaSALA_App(ctk.CTk):
         ctk.CTkLabel(frame, text="Determine VBM by Intersection", font=("Roboto", 12, "bold")).pack(pady=5)
 
         # 1. Background Range
-        ctk.CTkLabel(frame, text="1. Background Range:", font=("Roboto", 11)).pack(anchor="w", padx=5)
-        bg_frame = ctk.CTkFrame(frame, fg_color="transparent"); bg_frame.pack(fill="x", padx=5)
-        self.entry_bg_min = ctk.CTkEntry(bg_frame, width=50); self.entry_bg_min.pack(side="left")
-        ctk.CTkLabel(bg_frame, text="-").pack(side="left")
-        self.entry_bg_max = ctk.CTkEntry(bg_frame, width=50); self.entry_bg_max.pack(side="left")
+        ctk.CTkLabel(frame, text="1. Background Range:", font=("Roboto", 11)).pack(anchor="w", padx=2)
+        bg_frame = ctk.CTkFrame(frame, fg_color="transparent"); bg_frame.pack(fill="x", padx=2)
+        # ★ 幅を 45 -> 65 に拡大
+        self.entry_bg_min = ctk.CTkEntry(bg_frame, width=65); self.entry_bg_min.pack(side="left")
+        ctk.CTkLabel(bg_frame, text="-").pack(side="left", padx=2)
+        self.entry_bg_max = ctk.CTkEntry(bg_frame, width=65); self.entry_bg_max.pack(side="left")
         ctk.CTkButton(bg_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("bg")).pack(side="right")
 
         # 2. Slope Range
-        ctk.CTkLabel(frame, text="2. VB Slope Range:", font=("Roboto", 11)).pack(anchor="w", padx=5, pady=(10,0))
-        slope_frame = ctk.CTkFrame(frame, fg_color="transparent"); slope_frame.pack(fill="x", padx=5)
-        self.entry_slope_min = ctk.CTkEntry(slope_frame, width=50); self.entry_slope_min.pack(side="left")
-        ctk.CTkLabel(slope_frame, text="-").pack(side="left")
-        self.entry_slope_max = ctk.CTkEntry(slope_frame, width=50); self.entry_slope_max.pack(side="left")
+        ctk.CTkLabel(frame, text="2. VB Slope Range:", font=("Roboto", 11)).pack(anchor="w", padx=2, pady=(10,0))
+        slope_frame = ctk.CTkFrame(frame, fg_color="transparent"); slope_frame.pack(fill="x", padx=2)
+        # ★ 幅を 45 -> 65 に拡大
+        self.entry_slope_min = ctk.CTkEntry(slope_frame, width=65); self.entry_slope_min.pack(side="left")
+        ctk.CTkLabel(slope_frame, text="-").pack(side="left", padx=2)
+        self.entry_slope_max = ctk.CTkEntry(slope_frame, width=65); self.entry_slope_max.pack(side="left")
         ctk.CTkButton(slope_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("slope")).pack(side="right")
 
         # Buttons
@@ -161,9 +167,9 @@ class BaSALA_App(ctk.CTk):
         self.btn_reset_mode.pack(pady=10)
         
         self.calc_btn = ctk.CTkButton(frame, text="Calculate VBM", command=self.calculate, fg_color="#2d8d2d", state="disabled")
-        self.calc_btn.pack(padx=10, pady=15, fill="x")
+        self.calc_btn.pack(padx=5, pady=15, fill="x")
         
-        self.vbm_label = ctk.CTkLabel(frame, text="VBM: --- eV", font=ctk.CTkFont(size=20, weight="bold"), text_color="#4db6ac")
+        self.vbm_label = ctk.CTkLabel(frame, text="VBM: --- eV", font=ctk.CTkFont(size=18, weight="bold"), text_color="#4db6ac")
         self.vbm_label.pack(pady=5)
 
     def _init_bandgap_tab(self):
@@ -171,20 +177,21 @@ class BaSALA_App(ctk.CTk):
         self.bg_tab_frame = ctk.CTkFrame(self.tab_bg, fg_color="transparent")
         self.bg_tab_frame.pack(fill="both", expand=True)
 
-        self.bg_mode_var = ctk.StringVar(value="Hybrid Fit")
+        self.bg_mode_var = ctk.StringVar(value="Hybrid")
         self.seg_bg_mode = ctk.CTkSegmentedButton(self.bg_tab_frame, 
-                                                  values=["Hybrid Fit", "Linear Fit", "Derivative"], 
+                                                  values=["Hybrid", "Linear", "Deriv"], 
                                                   variable=self.bg_mode_var, command=self.update_bg_ui)
-        self.seg_bg_mode.pack(pady=10, padx=10, fill="x")
-        self.seg_bg_mode.set("Hybrid Fit")
+        self.seg_bg_mode.pack(pady=10, padx=5, fill="x")
+        self.seg_bg_mode.set("Hybrid")
 
         # 1. Main Peak
-        ctk.CTkLabel(self.bg_tab_frame, text="1. Main Peak (Eg Reference):", font=("Roboto", 11)).pack(anchor="w", padx=5)
+        ctk.CTkLabel(self.bg_tab_frame, text="1. Main Peak (Eg Reference):", font=("Roboto", 11)).pack(anchor="w", padx=2)
         self.p_frame = ctk.CTkFrame(self.bg_tab_frame, fg_color="transparent")
-        self.p_frame.pack(fill="x", padx=5)
-        self.bg_peak_min = ctk.CTkEntry(self.p_frame, width=50); self.bg_peak_min.pack(side="left")
-        ctk.CTkLabel(self.p_frame, text="-").pack(side="left")
-        self.bg_peak_max = ctk.CTkEntry(self.p_frame, width=50); self.bg_peak_max.pack(side="left")
+        self.p_frame.pack(fill="x", padx=2)
+        # ★ 幅を 45 -> 65 に拡大
+        self.bg_peak_min = ctk.CTkEntry(self.p_frame, width=65); self.bg_peak_min.pack(side="left")
+        ctk.CTkLabel(self.p_frame, text="-").pack(side="left", padx=2)
+        self.bg_peak_max = ctk.CTkEntry(self.p_frame, width=65); self.bg_peak_max.pack(side="left")
         ctk.CTkButton(self.p_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("bg_peak")).pack(side="right")
 
         # Input Container
@@ -194,29 +201,32 @@ class BaSALA_App(ctk.CTk):
         # --- A. Linear / Hybrid UI ---
         self.frame_linear = ctk.CTkFrame(self.bg_input_container, fg_color="transparent")
         
-        ctk.CTkLabel(self.frame_linear, text="2. Loss Base (Flat):", font=("Roboto", 11)).pack(anchor="w", padx=5, pady=(5,0))
-        self.b_frame = ctk.CTkFrame(self.frame_linear, fg_color="transparent"); self.b_frame.pack(fill="x", padx=5)
-        self.bg_base_min = ctk.CTkEntry(self.b_frame, width=50); self.bg_base_min.pack(side="left")
-        ctk.CTkLabel(self.b_frame, text="-").pack(side="left")
-        self.bg_base_max = ctk.CTkEntry(self.b_frame, width=50); self.bg_base_max.pack(side="left")
+        ctk.CTkLabel(self.frame_linear, text="2. Loss Base (Flat):", font=("Roboto", 11)).pack(anchor="w", padx=2, pady=(5,0))
+        self.b_frame = ctk.CTkFrame(self.frame_linear, fg_color="transparent"); self.b_frame.pack(fill="x", padx=2)
+        # ★ 幅を 45 -> 65 に拡大
+        self.bg_base_min = ctk.CTkEntry(self.b_frame, width=65); self.bg_base_min.pack(side="left")
+        ctk.CTkLabel(self.b_frame, text="-").pack(side="left", padx=2)
+        self.bg_base_max = ctk.CTkEntry(self.b_frame, width=65); self.bg_base_max.pack(side="left")
         ctk.CTkButton(self.b_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("bg_base")).pack(side="right")
         
-        ctk.CTkLabel(self.frame_linear, text="3. Loss Slope (Rise):", font=("Roboto", 11)).pack(anchor="w", padx=5, pady=(5,0))
-        self.s_frame = ctk.CTkFrame(self.frame_linear, fg_color="transparent"); self.s_frame.pack(fill="x", padx=5)
-        self.bg_slope_min = ctk.CTkEntry(self.s_frame, width=50); self.bg_slope_min.pack(side="left")
-        ctk.CTkLabel(self.s_frame, text="-").pack(side="left")
-        self.bg_slope_max = ctk.CTkEntry(self.s_frame, width=50); self.bg_slope_max.pack(side="left")
+        ctk.CTkLabel(self.frame_linear, text="3. Loss Slope (Rise):", font=("Roboto", 11)).pack(anchor="w", padx=2, pady=(5,0))
+        self.s_frame = ctk.CTkFrame(self.frame_linear, fg_color="transparent"); self.s_frame.pack(fill="x", padx=2)
+        # ★ 幅を 45 -> 65 に拡大
+        self.bg_slope_min = ctk.CTkEntry(self.s_frame, width=65); self.bg_slope_min.pack(side="left")
+        ctk.CTkLabel(self.s_frame, text="-").pack(side="left", padx=2)
+        self.bg_slope_max = ctk.CTkEntry(self.s_frame, width=65); self.bg_slope_max.pack(side="left")
         ctk.CTkButton(self.s_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("bg_slope")).pack(side="right")
 
         # --- B. Derivative UI ---
         self.frame_single = ctk.CTkFrame(self.bg_input_container, fg_color="transparent")
         
-        ctk.CTkLabel(self.frame_single, text="2. Onset Search Region:", font=("Roboto", 11)).pack(anchor="w", padx=5, pady=(5,0))
-        ctk.CTkLabel(self.frame_single, text="(Cover both Background & Rising edge)", font=("Roboto", 10), text_color="gray").pack(anchor="w", padx=5)
-        self.d_frame = ctk.CTkFrame(self.frame_single, fg_color="transparent"); self.d_frame.pack(fill="x", padx=5)
-        self.bg_single_min = ctk.CTkEntry(self.d_frame, width=50); self.bg_single_min.pack(side="left")
-        ctk.CTkLabel(self.d_frame, text="-").pack(side="left")
-        self.bg_single_max = ctk.CTkEntry(self.d_frame, width=50); self.bg_single_max.pack(side="left")
+        ctk.CTkLabel(self.frame_single, text="2. Onset Search Region:", font=("Roboto", 11)).pack(anchor="w", padx=2, pady=(5,0))
+        ctk.CTkLabel(self.frame_single, text="(Cover both Background & Rising edge)", font=("Roboto", 10), text_color="gray").pack(anchor="w", padx=2)
+        self.d_frame = ctk.CTkFrame(self.frame_single, fg_color="transparent"); self.d_frame.pack(fill="x", padx=2)
+        # ★ 幅を 45 -> 65 に拡大
+        self.bg_single_min = ctk.CTkEntry(self.d_frame, width=65); self.bg_single_min.pack(side="left")
+        ctk.CTkLabel(self.d_frame, text="-").pack(side="left", padx=2)
+        self.bg_single_max = ctk.CTkEntry(self.d_frame, width=65); self.bg_single_max.pack(side="left")
         ctk.CTkButton(self.d_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("bg_single")).pack(side="right")
 
         # 初期表示
@@ -229,10 +239,9 @@ class BaSALA_App(ctk.CTk):
         
         # 候補選択ドロップダウン
         self.frame_candidates = ctk.CTkFrame(self.bg_tab_frame, fg_color="transparent")
-        # ★ ラベルシンプル化
-        ctk.CTkLabel(self.frame_candidates, text="Candidates (Curvature Order):", font=("Roboto", 12)).pack(side="left", padx=5)
-        self.combo_candidates = ctk.CTkComboBox(self.frame_candidates, width=200, command=self.on_candidate_selected)
-        self.combo_candidates.pack(side="left", padx=5)
+        ctk.CTkLabel(self.frame_candidates, text="Candidates (Curvature Order):", font=("Roboto", 12)).pack(side="left", padx=2)
+        self.combo_candidates = ctk.CTkComboBox(self.frame_candidates, width=220, command=self.on_candidate_selected)
+        self.combo_candidates.pack(side="left", padx=2)
         
         self.frame_candidates.pack(pady=5)
         
@@ -241,14 +250,14 @@ class BaSALA_App(ctk.CTk):
 
     def update_bg_ui(self, value):
         """モード切替時のUI更新"""
-        if value in ["Linear Fit", "Hybrid Fit"]:
+        if value in ["Linear", "Hybrid"]:
             self.frame_single.pack_forget()
             self.frame_linear.pack(fill="x", pady=5)
         else:
             self.frame_linear.pack_forget()
             self.frame_single.pack(fill="x", pady=5)
             
-        if value == "Linear Fit":
+        if value == "Linear":
             self.frame_candidates.pack_forget()
         else:
             self.frame_candidates.pack(pady=5)
@@ -294,7 +303,6 @@ class BaSALA_App(ctk.CTk):
         }
         color = colors.get(mode, 'gray')
         
-        # ★ 見栄えを良くするため alpha を 0.2 に下げる (より控えめに)
         self.span = SpanSelector(self.ax, self.on_select, 'horizontal', useblit=True, 
                                  props=dict(alpha=0.2, facecolor=color), interactive=True, drag_from_anywhere=True)
         self.canvas.draw()
@@ -353,24 +361,24 @@ class BaSALA_App(ctk.CTk):
 
             min_e, max_e = np.min(self.energy), np.max(self.energy)
             
-            # ★ 初期範囲を「最小・共通・見栄え良く」設定 (幅1.0eV程度に統一)
+            # 初期範囲設定
             # VBM Tab
             self.entry_bg_min.delete(0, tk.END); self.entry_bg_min.insert(0, f"{min_e:.1f}")
-            self.entry_bg_max.delete(0, tk.END); self.entry_bg_max.insert(0, f"{min_e+1.0:.1f}") # 幅1.0
+            self.entry_bg_max.delete(0, tk.END); self.entry_bg_max.insert(0, f"{min_e+1.0:.1f}") 
             self.entry_slope_min.delete(0, tk.END); self.entry_slope_min.insert(0, f"{min_e+1.5:.1f}")
-            self.entry_slope_max.delete(0, tk.END); self.entry_slope_max.insert(0, f"{min_e+2.5:.1f}") # 幅1.0
+            self.entry_slope_max.delete(0, tk.END); self.entry_slope_max.insert(0, f"{min_e+2.5:.1f}") 
             
-            # Band Gap Tab (Peakは鋭いので0.8eV幅)
+            # Band Gap Tab
             self.bg_peak_min.delete(0, tk.END); self.bg_peak_min.insert(0, f"{min_e:.1f}")
             self.bg_peak_max.delete(0, tk.END); self.bg_peak_max.insert(0, f"{min_e+0.8:.1f}") 
             
-            # Linear / Hybrid Fitting Ranges (相対位置で見栄え良く配置)
+            # Linear / Hybrid Fitting Ranges
             self.bg_base_min.delete(0, tk.END); self.bg_base_min.insert(0, f"{min_e+4.0:.1f}")
-            self.bg_base_max.delete(0, tk.END); self.bg_base_max.insert(0, f"{min_e+5.0:.1f}") # 幅1.0
+            self.bg_base_max.delete(0, tk.END); self.bg_base_max.insert(0, f"{min_e+5.0:.1f}") 
             self.bg_slope_min.delete(0, tk.END); self.bg_slope_min.insert(0, f"{min_e+5.5:.1f}")
-            self.bg_slope_max.delete(0, tk.END); self.bg_slope_max.insert(0, f"{min_e+6.5:.1f}") # 幅1.0
+            self.bg_slope_max.delete(0, tk.END); self.bg_slope_max.insert(0, f"{min_e+6.5:.1f}") 
             
-            # Derivative Search Range (Onsetを探すため少し広めに3.0eV幅)
+            # Derivative Search Range
             self.bg_single_min.delete(0, tk.END); self.bg_single_min.insert(0, f"{min_e+4.0:.1f}")
             self.bg_single_max.delete(0, tk.END); self.bg_single_max.insert(0, f"{min_e+7.0:.1f}")
             
@@ -468,7 +476,7 @@ class BaSALA_App(ctk.CTk):
 
             onset_x, onset_y, gap = 0, 0, 0
 
-            if mode == "Linear Fit":
+            if mode == "Linear":
                 base_r = (float(self.bg_base_min.get()), float(self.bg_base_max.get()))
                 sl_r = (float(self.bg_slope_min.get()), float(self.bg_slope_max.get()))
                 mask_base = (self.energy >= base_r[0]) & (self.energy <= base_r[1])
@@ -488,7 +496,7 @@ class BaSALA_App(ctk.CTk):
                 self.ax.axvspan(sl_r[0], sl_r[1], color='red', alpha=0.1)
                 self.draw_result_marker(onset_x, onset_y, gap, "Linear Onset")
 
-            elif mode == "Hybrid Fit":
+            elif mode == "Hybrid":
                 base_r = (float(self.bg_base_min.get()), float(self.bg_base_max.get()))
                 sl_r = (float(self.bg_slope_min.get()), float(self.bg_slope_max.get()))
                 mask_base = (self.energy >= base_r[0]) & (self.energy <= base_r[1])
@@ -546,7 +554,7 @@ class BaSALA_App(ctk.CTk):
                 raw_score = properties['peak_heights'][list(peaks).index(p_idx)]
                 self.candidates.append((cx, cy, raw_score))
             
-            # ★ 1. 曲率（生スコア）が大きい順にソート (最もエッジらしいものを上に)
+            # 1. 曲率（生スコア）が大きい順にソート
             self.candidates.sort(key=lambda x: x[2], reverse=True)
             self.candidates = self.candidates[:5]
             
@@ -588,7 +596,7 @@ class BaSALA_App(ctk.CTk):
             self.ax.axvline(peak_x, color='green', linestyle=':', alpha=0.6)
             self.ax.axvspan(pk_min, pk_max, color='green', alpha=0.1)
 
-            if mode == "Hybrid Fit":
+            if mode == "Hybrid":
                 popt_base = self.calc_context['popt_base']
                 popt_sl = self.calc_context['popt_sl']
                 x_plot = np.linspace(min(self.energy), max(self.energy), 200)
@@ -597,7 +605,7 @@ class BaSALA_App(ctk.CTk):
                 self.ax.axvspan(self.calc_context['base_r'][0], self.calc_context['base_r'][1], color='blue', alpha=0.1)
                 self.ax.axvspan(self.calc_context['sl_r'][0], self.calc_context['sl_r'][1], color='red', alpha=0.1)
                 
-            elif mode == "Derivative":
+            elif mode == "Deriv":
                 if 'x_smooth' in self.calc_context:
                     self.ax.plot(self.calc_context['x_smooth'], self.calc_context['y_smooth'], color='orange', linestyle=':', linewidth=2, alpha=0.8)
             
