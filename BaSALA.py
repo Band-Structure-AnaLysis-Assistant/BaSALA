@@ -31,43 +31,27 @@ def gaussian_func(x, a, mu, sigma, c):
 def calculate_shirley_bg(x, y, tol=1e-5, max_iters=50):
     """
     Shirley法によるバックグラウンド（BG）計算関数
-    XPSスペクトルの非弾性散乱成分を除去します。
     """
     sorted_indices = np.argsort(x)
     x_sorted = x[sorted_indices]
     y_sorted = y[sorted_indices]
     n = len(y)
-    
-    # 始点と終点の強度を取得
     I_start = y_sorted[0]
     I_end = y_sorted[-1]
-    
-    # 初期BG (平坦な線)
     bg = np.full(n, I_start)
-    
-    # 反復計算
     for _ in range(max_iters):
         signal = y_sorted - I_start
         signal[signal < 0] = 0
-        
-        # 累積積分 (台形則)
         cum_area = np.zeros(n)
         cum_area[1:] = np.cumsum((signal[:-1] + signal[1:]) / 2 * np.diff(x_sorted))
         total_area = cum_area[-1]
-        
-        if total_area == 0:
-            k = 0
-        else:
-            k = (I_end - I_start) / total_area
-            
+        if total_area == 0: k = 0
+        else: k = (I_end - I_start) / total_area
         bg_new = I_start + k * cum_area
-        
         if np.max(np.abs(bg_new - bg)) < tol:
             bg = bg_new
             break
         bg = bg_new
-
-    # 元の順序に戻す
     bg_original_order = np.zeros(n)
     bg_original_order[sorted_indices] = bg
     return bg_original_order
@@ -81,29 +65,24 @@ class BaSALA_App(ctk.CTk):
         super().__init__()
         
         # ★ ウィンドウタイトル設定
-        self.title("BaSALA - Band Structure AnaLysis Assistant (v2.0)")
+        self.title("BaSALA - Band Structure AnaLysis Assistant (v2.1)")
         self.geometry("1280x900")
-        
-        # 終了時処理
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        # --- データ保持用変数 ---
+        # データ保持用変数
         self.file_path = None
         self.df = None
-        self.energy = None              # Binding Energy
-        self.intensity = None           # Raw Intensity
-        self.intensity_corrected = None # Corrected Intensity
-        self.bg_data = None             # Background Data
+        self.energy = None
+        self.intensity = None
+        self.intensity_corrected = None
+        self.bg_data = None
+        self.span = None
+        self.selection_mode = None
         
-        # --- ツール用変数 ---
-        self.span = None                # 範囲選択ツール
-        self.selection_mode = None      # 選択モード状態
-        
-        # --- 計算結果保持用 ---
-        self.candidates = []            # 候補リスト (Hybrid/Deriv用)
-        self.calc_context = {}          # 再描画用コンテキスト
+        # 候補選択用 (Hybrid & Derivative)
+        self.candidates = []
+        self.calc_context = {}
 
-        # --- UI構築 ---
         self._create_sidebar()
         self._create_main_area()
 
@@ -148,15 +127,17 @@ class BaSALA_App(ctk.CTk):
         self.tabview = ctk.CTkTabview(self.sidebar, width=320)
         self.tabview.pack(padx=10, pady=10, fill="both", expand=True)
         
-        self.tab_analysis = self.tabview.add("Analysis") # VBM
-        self.tab_bg = self.tabview.add("Band Gap")       # Band Gap
+        # ★ タブ名を "VBM" に変更
+        self.tab_vbm = self.tabview.add("VBM")           # Tab 1: VBM解析
+        self.tab_bg = self.tabview.add("Band Gap")       # Tab 2: Band Gap解析
         
         self._init_vbm_tab()
         self._init_bandgap_tab()
 
     def _init_vbm_tab(self):
         """Tab 1: VBM解析 (Linear Intersection)"""
-        frame = ctk.CTkFrame(self.tab_analysis, fg_color="transparent")
+        # 親フレームを self.tab_vbm に変更
+        frame = ctk.CTkFrame(self.tab_vbm, fg_color="transparent")
         frame.pack(fill="both", expand=True)
         
         ctk.CTkLabel(frame, text="Determine VBM by Intersection", font=("Roboto", 12, "bold")).pack(pady=5)
@@ -192,7 +173,7 @@ class BaSALA_App(ctk.CTk):
         self.bg_tab_frame = ctk.CTkFrame(self.tab_bg, fg_color="transparent")
         self.bg_tab_frame.pack(fill="both", expand=True)
 
-        # ★ モード切替: Hybridをデフォルト(左)に配置
+        # モード切替: Hybridをデフォルト(左)に配置
         self.bg_mode_var = ctk.StringVar(value="Hybrid Fit")
         self.seg_bg_mode = ctk.CTkSegmentedButton(self.bg_tab_frame, 
                                                   values=["Hybrid Fit", "Linear Fit", "Derivative"], 
@@ -209,7 +190,7 @@ class BaSALA_App(ctk.CTk):
         self.bg_peak_max = ctk.CTkEntry(self.p_frame, width=50); self.bg_peak_max.pack(side="left")
         ctk.CTkButton(self.p_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("bg_peak")).pack(side="right")
 
-        # 入力欄コンテナ (レイアウト崩れ防止)
+        # 入力欄コンテナ
         self.bg_input_container = ctk.CTkFrame(self.bg_tab_frame, fg_color="transparent")
         self.bg_input_container.pack(fill="x", pady=5)
 
@@ -252,13 +233,13 @@ class BaSALA_App(ctk.CTk):
         self.calc_bg_btn = ctk.CTkButton(self.bg_tab_frame, text="Calculate Band Gap", command=self.calculate_bandgap, fg_color="#E07A5F", state="disabled")
         self.calc_bg_btn.pack(pady=5, fill="x")
         
-        # ★ 候補選択ドロップダウン (Hybrid/Derivで表示)
+        # 候補選択ドロップダウン (Hybrid/Derivで表示)
         self.frame_candidates = ctk.CTkFrame(self.bg_tab_frame, fg_color="transparent")
         ctk.CTkLabel(self.frame_candidates, text="Candidates:", font=("Roboto", 12)).pack(side="left", padx=5)
         self.combo_candidates = ctk.CTkComboBox(self.frame_candidates, width=200, command=self.on_candidate_selected)
         self.combo_candidates.pack(side="left", padx=5)
         
-        # 初期状態はHybrid(デフォルト)なので表示しておく
+        # 初期表示(Hybrid)
         self.frame_candidates.pack(pady=5)
         
         # 結果ラベル
@@ -267,7 +248,6 @@ class BaSALA_App(ctk.CTk):
 
     def update_bg_ui(self, value):
         """モード切替時のUI更新"""
-        # 入力欄の切り替え
         if value in ["Linear Fit", "Hybrid Fit"]:
             self.frame_single.pack_forget()
             self.frame_linear.pack(fill="x", pady=5)
@@ -275,7 +255,6 @@ class BaSALA_App(ctk.CTk):
             self.frame_linear.pack_forget()
             self.frame_single.pack(fill="x", pady=5)
             
-        # 候補選択UIの表示制御
         if value == "Linear Fit":
             self.frame_candidates.pack_forget()
         else:
@@ -289,7 +268,7 @@ class BaSALA_App(ctk.CTk):
         self.fig, self.ax = plt.subplots(figsize=(8, 6), dpi=100)
         self.ax.set_xlabel("Binding Energy (eV)")
         self.ax.set_ylabel("Intensity (a.u.)")
-        self.ax.invert_xaxis() # XPSの慣習 (左が高エネルギー)
+        self.ax.invert_xaxis()
         
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.main_frame)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
@@ -302,23 +281,15 @@ class BaSALA_App(ctk.CTk):
     # ==========================================
 
     def auto_scale_y(self):
-        """Y軸の自動スケール調整"""
         if self.intensity is None: return
-        
-        # 全体像(Raw)を基準にする
         y_max_raw = np.max(self.intensity)
-        
-        # 現在のデータ(Corrected含む)の下限
         y_current = self.get_current_intensity()
         y_min_curr = np.min(y_current)
-        
         amp = y_max_raw - y_min_curr
         margin = amp * 0.05 if amp > 0 else 10.0
-        
         self.ax.set_ylim(y_min_curr - margin, y_max_raw + margin)
 
     def activate_selector(self, mode):
-        """範囲選択モード起動"""
         self.selection_mode = mode
         if self.span: self.span.set_visible(False); self.span = None
         
@@ -335,13 +306,11 @@ class BaSALA_App(ctk.CTk):
         self.canvas.draw()
 
     def deactivate_selector(self):
-        """範囲選択モード終了"""
         if self.span: self.span.set_visible(False); self.span = None
         self.selection_mode = None
         self.canvas.draw()
 
     def on_select(self, vmin, vmax):
-        """範囲選択完了時の値入力"""
         min_val, max_val = sorted([vmin, vmax])
         v_min, v_max = f"{min_val:.2f}", f"{max_val:.2f}"
         
@@ -360,9 +329,7 @@ class BaSALA_App(ctk.CTk):
             e2.delete(0, tk.END); e2.insert(0, v_max)
 
     def on_shirley_toggle(self):
-        """Shirley ON/OFF"""
         if self.energy is None: return
-        
         if self.chk_shirley_var.get():
             try:
                 self.bg_data = calculate_shirley_bg(self.energy, self.intensity)
@@ -372,11 +339,9 @@ class BaSALA_App(ctk.CTk):
                 self.chk_shirley_var.set(False)
         else: 
             self.bg_data = None; self.intensity_corrected = None
-        
         self.plot_base_graph()
 
     def load_csv(self):
-        """CSV読み込み"""
         file_path = filedialog.askopenfilename(filetypes=[("Data Files", "*.csv *.txt *.dat"), ("All Files", "*.*")])
         if not file_path: return
         
@@ -392,16 +357,14 @@ class BaSALA_App(ctk.CTk):
             self.energy = self.energy[mask]; self.intensity = self.intensity[mask]
             if len(self.energy) == 0: return
 
-            # 初期値設定
             min_e, max_e = np.min(self.energy), np.max(self.energy)
             
-            # VBM Defaults
+            # Defaults
             self.entry_bg_min.delete(0, tk.END); self.entry_bg_min.insert(0, f"{min_e:.1f}")
             self.entry_bg_max.delete(0, tk.END); self.entry_bg_max.insert(0, f"{min_e+2.0:.1f}")
             self.entry_slope_min.delete(0, tk.END); self.entry_slope_min.insert(0, f"{min_e+3.0:.1f}")
             self.entry_slope_max.delete(0, tk.END); self.entry_slope_max.insert(0, f"{min_e+5.0:.1f}")
             
-            # Band Gap Defaults
             self.bg_peak_min.delete(0, tk.END); self.bg_peak_min.insert(0, f"{min_e:.1f}")
             self.bg_peak_max.delete(0, tk.END); self.bg_peak_max.insert(0, f"{min_e+1.0:.1f}")
             self.bg_base_min.delete(0, tk.END); self.bg_base_min.insert(0, f"{min_e+10.0:.1f}")
@@ -411,7 +374,6 @@ class BaSALA_App(ctk.CTk):
             self.bg_single_min.delete(0, tk.END); self.bg_single_min.insert(0, f"{min_e+10.0:.1f}")
             self.bg_single_max.delete(0, tk.END); self.bg_single_max.insert(0, f"{min_e+15.0:.1f}")
             
-            # Reset
             self.chk_shirley_var.set(False); self.intensity_corrected = None; self.bg_data = None
             
             self.plot_base_graph()
@@ -420,7 +382,6 @@ class BaSALA_App(ctk.CTk):
         except Exception as e: messagebox.showerror("Error", str(e))
 
     def plot_base_graph(self):
-        """ベースグラフ描画"""
         self.ax.clear()
         if self.chk_shirley_var.get() and self.intensity_corrected is not None:
             self.ax.plot(self.energy, self.intensity, color='gray', alpha=0.3, label='Raw Data')
@@ -428,13 +389,11 @@ class BaSALA_App(ctk.CTk):
             self.ax.plot(self.energy, self.intensity_corrected, color='#4a90e2', linewidth=1.5, label='Corrected')
         else:
             self.ax.plot(self.energy, self.intensity, color='#4a90e2', linewidth=1.5, label='Raw Spectrum')
-            
         self.ax.legend(); self.ax.grid(True); self.ax.invert_xaxis()
         self.auto_scale_y()
         self.canvas.draw()
 
     def get_current_intensity(self):
-        """現在の強度データを取得"""
         return self.intensity_corrected if (self.chk_shirley_var.get() and self.intensity_corrected is not None) else self.intensity
 
     # ==========================================
@@ -458,7 +417,6 @@ class BaSALA_App(ctk.CTk):
 
             vbm_x = (popt_sl[1] - popt_bg[1]) / (popt_bg[0] - popt_sl[0])
             vbm_y = linear_func(vbm_x, *popt_bg)
-            
             self.vbm_label.configure(text=f"VBM: {vbm_x:.3f} eV")
 
             self.plot_base_graph()
@@ -481,7 +439,6 @@ class BaSALA_App(ctk.CTk):
             y_data = self.get_current_intensity()
             mode = self.bg_mode_var.get()
             
-            # --- 1. Gaussian Peak Fit (共通) ---
             pk_r = (float(self.bg_peak_min.get()), float(self.bg_peak_max.get()))
             mask_pk = (self.energy >= pk_r[0]) & (self.energy <= pk_r[1])
             if not np.any(mask_pk): raise ValueError("Peak範囲にデータがありません")
@@ -504,7 +461,6 @@ class BaSALA_App(ctk.CTk):
             self.ax.axvline(peak_x, color='green', linestyle=':', alpha=0.6)
             self.ax.axvspan(pk_r[0], pk_r[1], color='green', alpha=0.1)
 
-            # Context保存
             self.calc_context = {
                 'peak_x': peak_x, 'peak_y': peak_y,
                 'popt_gauss': popt_gauss, 'y_data': y_data, 'mode': mode
@@ -512,28 +468,19 @@ class BaSALA_App(ctk.CTk):
 
             onset_x, onset_y, gap = 0, 0, 0
 
-            # ------------------------------------
-            # Mode Branching
-            # ------------------------------------
             if mode == "Linear Fit":
-                # Linear Fit (候補なし)
                 base_r = (float(self.bg_base_min.get()), float(self.bg_base_max.get()))
                 sl_r = (float(self.bg_slope_min.get()), float(self.bg_slope_max.get()))
-                
                 mask_base = (self.energy >= base_r[0]) & (self.energy <= base_r[1])
                 mask_sl = (self.energy >= sl_r[0]) & (self.energy <= sl_r[1])
-                
                 popt_base, _ = curve_fit(linear_func, self.energy[mask_base], y_data[mask_base])
                 popt_sl, _ = curve_fit(linear_func, self.energy[mask_sl], y_data[mask_sl])
-                
                 onset_x = (popt_sl[1] - popt_base[1]) / (popt_base[0] - popt_sl[0])
                 onset_y = linear_func(onset_x, *popt_base)
                 gap = abs(onset_x - peak_x)
                 
-                # Context保存
                 self.calc_context.update({'popt_base': popt_base, 'popt_sl': popt_sl, 'base_r': base_r, 'sl_r': sl_r})
                 
-                # Plot
                 x_plot = np.linspace(min(self.energy), max(self.energy), 200)
                 self.ax.plot(x_plot, linear_func(x_plot, *popt_base), 'b--', alpha=0.5, label='Base Fit')
                 self.ax.plot(x_plot, linear_func(x_plot, *popt_sl), 'r--', alpha=0.5, label='Slope Fit')
@@ -542,17 +489,14 @@ class BaSALA_App(ctk.CTk):
                 self.draw_result_marker(onset_x, onset_y, gap, "Linear Onset")
 
             elif mode == "Hybrid Fit":
-                # Hybrid Fit (Linear Guide + Deriv Candidates)
                 base_r = (float(self.bg_base_min.get()), float(self.bg_base_max.get()))
                 sl_r = (float(self.bg_slope_min.get()), float(self.bg_slope_max.get()))
-                
                 mask_base = (self.energy >= base_r[0]) & (self.energy <= base_r[1])
                 mask_sl = (self.energy >= sl_r[0]) & (self.energy <= sl_r[1])
                 popt_base, _ = curve_fit(linear_func, self.energy[mask_base], y_data[mask_base])
                 popt_sl, _ = curve_fit(linear_func, self.energy[mask_sl], y_data[mask_sl])
                 linear_onset_x = (popt_sl[1] - popt_base[1]) / (popt_base[0] - popt_sl[0])
                 
-                # ガイド線
                 x_plot = np.linspace(min(self.energy), max(self.energy), 200)
                 self.ax.plot(x_plot, linear_func(x_plot, *popt_base), 'b--', alpha=0.3)
                 self.ax.plot(x_plot, linear_func(x_plot, *popt_sl), 'r--', alpha=0.3)
@@ -560,22 +504,15 @@ class BaSALA_App(ctk.CTk):
                 self.ax.axvspan(sl_r[0], sl_r[1], color='red', alpha=0.1)
                 
                 self.calc_context.update({'popt_base': popt_base, 'popt_sl': popt_sl, 'base_r': base_r, 'sl_r': sl_r})
-
-                # 周辺探索
                 search_min, search_max = linear_onset_x - 1.5, linear_onset_x + 1.5
                 self.find_and_display_candidates(search_min, search_max, y_data, peak_x)
-                
                 self.ax.axvspan(search_min, search_max, color='orange', alpha=0.1, label='Search Region')
 
             else:
-                # Derivative Fit (Single Range + Candidates)
                 d_r = (float(self.bg_single_min.get()), float(self.bg_single_max.get()))
-                
                 self.find_and_display_candidates(d_r[0], d_r[1], y_data, peak_x)
-                
                 if 'x_smooth' in self.calc_context:
                     self.ax.plot(self.calc_context['x_smooth'], self.calc_context['y_smooth'], color='orange', linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
-                
                 self.ax.axvspan(d_r[0], d_r[1], color='orange', alpha=0.1, label='Search Region')
 
             self.ax.legend(); self.canvas.draw()
@@ -598,10 +535,7 @@ class BaSALA_App(ctk.CTk):
         
         if len(x_s) < 5: raise ValueError("探索範囲データ不足")
         
-        # 2次微分
         d2y = np.gradient(np.gradient(y_s_smooth, x_s), x_s)
-        
-        # ピーク検出 (正)
         peaks, properties = find_peaks(d2y, height=0)
         
         self.candidates = []
@@ -617,7 +551,6 @@ class BaSALA_App(ctk.CTk):
             mid_idx = len(x_s) // 2
             self.candidates = [(x_s[mid_idx], y_s_smooth[mid_idx], 0)]
 
-        # コンボボックス更新
         combo_values = []
         for i, (cx, cy, score) in enumerate(self.candidates):
             gap_val = abs(cx - peak_x)
@@ -626,7 +559,6 @@ class BaSALA_App(ctk.CTk):
         self.combo_candidates.configure(values=combo_values)
         self.combo_candidates.set(combo_values[0])
         
-        # Top 1 描画
         best_x, best_y, _ = self.candidates[0]
         self.draw_result_marker(best_x, best_y, abs(best_x - peak_x), "Best Candidate")
 
