@@ -64,8 +64,8 @@ class BaSALA_App(ctk.CTk):
     def __init__(self):
         super().__init__()
         
-        # ★ ウィンドウタイトル設定
-        self.title("BaSALA - Band Structure AnaLysis Assistant (v2.3)")
+        # ★ ウィンドウタイトル設定 (v2.4)
+        self.title("BaSALA - Band Structure AnaLysis Assistant (v2.4)")
         self.geometry("1280x900")
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -233,9 +233,9 @@ class BaSALA_App(ctk.CTk):
         
         # 候補選択ドロップダウン (Hybrid/Derivで表示)
         self.frame_candidates = ctk.CTkFrame(self.bg_tab_frame, fg_color="transparent")
-        # ★ ラベルを "Curvature Score" に対応
-        ctk.CTkLabel(self.frame_candidates, text="Candidates (Sort by Curvature):", font=("Roboto", 12)).pack(side="left", padx=5)
-        self.combo_candidates = ctk.CTkComboBox(self.frame_candidates, width=250, command=self.on_candidate_selected)
+        # ★ ラベルを "Sorted by Eg Size" に変更
+        ctk.CTkLabel(self.frame_candidates, text="Candidates (Sorted by Eg Size):", font=("Roboto", 12)).pack(side="left", padx=5)
+        self.combo_candidates = ctk.CTkComboBox(self.frame_candidates, width=200, command=self.on_candidate_selected)
         self.combo_candidates.pack(side="left", padx=5)
         
         # 初期表示(Hybrid)
@@ -519,7 +519,7 @@ class BaSALA_App(ctk.CTk):
         except Exception as e: messagebox.showerror("Calc Error", str(e))
 
     def find_and_display_candidates(self, search_min, search_max, y_data, peak_x):
-        """候補探索 & ドロップダウン更新 (Curvature Score)"""
+        """候補探索 & ドロップダウン更新 (Eg順)"""
         target_window = 21 
         w_len = min(target_window, len(y_data))
         if w_len % 2 == 0: w_len -= 1
@@ -544,29 +544,30 @@ class BaSALA_App(ctk.CTk):
                 cy = y_s_smooth[p_idx]
                 raw_score = properties['peak_heights'][list(peaks).index(p_idx)]
                 self.candidates.append((cx, cy, raw_score))
+            
+            # 1. まず曲率(スコア)が大きい順にソートして、上位5つを残す (ノイズ除去)
             self.candidates.sort(key=lambda x: x[2], reverse=True)
             self.candidates = self.candidates[:5]
+            
+            # 2. 残った5つを、バンドギャップ(Eg)が大きい順にソートし直す
+            # Eg = abs(cx - peak_x)
+            self.candidates.sort(key=lambda x: abs(x[0] - peak_x), reverse=True)
+            
         else:
             mid_idx = len(x_s) // 2
             self.candidates = [(x_s[mid_idx], y_s_smooth[mid_idx], 0)]
 
-        # --- スコア正規化 & Curvature Score 表記 ---
-        max_score = self.candidates[0][2] if self.candidates else 1.0
-        if max_score == 0: max_score = 1.0
-
+        # --- 表示 (数値のみ、スコアなし) ---
         combo_values = []
         for i, (cx, cy, r_score) in enumerate(self.candidates):
             gap_val = abs(cx - peak_x)
-            norm_score = int((r_score / max_score) * 100)
-            tag = " (Best)" if i == 0 else ""
-            # ★ "Curvature Score" に変更
-            combo_values.append(f"{i+1}. Eg={gap_val:.3f} eV | Curvature Score: {norm_score}{tag}")
+            combo_values.append(f"{i+1}. Eg={gap_val:.3f} eV")
         
         self.combo_candidates.configure(values=combo_values)
         self.combo_candidates.set(combo_values[0])
         
         best_x, best_y, _ = self.candidates[0]
-        self.draw_result_marker(best_x, best_y, abs(best_x - peak_x), "Best Candidate")
+        self.draw_result_marker(best_x, best_y, abs(best_x - peak_x), "Selected Candidate")
 
     def on_candidate_selected(self, choice):
         """候補選択時の再描画"""
