@@ -64,8 +64,8 @@ class BaSALA_App(ctk.CTk):
     def __init__(self):
         super().__init__()
         
-        # ★ ウィンドウタイトル設定 (v2.9)
-        self.title("BaSALA - Band Structure AnaLysis Assistant (v2.9)")
+        # ★ ウィンドウタイトル設定 (v2.14)
+        self.title("BaSALA - Band Structure AnaLysis Assistant (v2.14)")
         self.geometry("1280x900")
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -88,33 +88,16 @@ class BaSALA_App(ctk.CTk):
 
     def _create_sidebar(self):
         """サイドバー（操作パネル）の作成"""
-        # サイドバー幅 (スリム仕様 280px)
+        # サイドバー幅 (280px)
         self.sidebar = ctk.CTkFrame(self, width=280, corner_radius=0)
         self.sidebar.pack(side="left", fill="y", padx=0, pady=0)
         
-        # 中身が増減しても幅が変わらないように固定
+        # UI固定: 中身が増減しても幅が変わらないように固定
         self.sidebar.pack_propagate(False)
-
-        # ロゴラベル
-        self.logo_label = ctk.CTkLabel(
-            self.sidebar, 
-            text="BaSALA", 
-            font=ctk.CTkFont(family="Roboto", size=32, weight="bold")
-        )
-        self.logo_label.pack(padx=10, pady=(30, 5))
-        
-        # サブタイトル
-        self.sub_logo_label = ctk.CTkLabel(
-            self.sidebar, 
-            text="Band Structure Analysis Assistant", 
-            font=ctk.CTkFont(size=11), 
-            text_color="gray"
-        )
-        self.sub_logo_label.pack(padx=10, pady=(0, 20))
 
         # --- 共通操作エリア ---
         self.common_frame = ctk.CTkFrame(self.sidebar)
-        self.common_frame.pack(padx=10, pady=5, fill="x")
+        self.common_frame.pack(padx=10, pady=(20, 5), fill="x") 
         
         self.load_btn = ctk.CTkButton(self.common_frame, text="Open CSV / Text", command=self.load_csv, fg_color="#1f538d", height=30)
         self.load_btn.pack(padx=5, pady=5, fill="x")
@@ -147,7 +130,6 @@ class BaSALA_App(ctk.CTk):
         # 1. Background Range
         ctk.CTkLabel(frame, text="1. Background Range:", font=("Roboto", 11)).pack(anchor="w", padx=2)
         bg_frame = ctk.CTkFrame(frame, fg_color="transparent"); bg_frame.pack(fill="x", padx=2)
-        # ★ 幅を 45 -> 65 に拡大
         self.entry_bg_min = ctk.CTkEntry(bg_frame, width=65); self.entry_bg_min.pack(side="left")
         ctk.CTkLabel(bg_frame, text="-").pack(side="left", padx=2)
         self.entry_bg_max = ctk.CTkEntry(bg_frame, width=65); self.entry_bg_max.pack(side="left")
@@ -156,7 +138,6 @@ class BaSALA_App(ctk.CTk):
         # 2. Slope Range
         ctk.CTkLabel(frame, text="2. VB Slope Range:", font=("Roboto", 11)).pack(anchor="w", padx=2, pady=(10,0))
         slope_frame = ctk.CTkFrame(frame, fg_color="transparent"); slope_frame.pack(fill="x", padx=2)
-        # ★ 幅を 45 -> 65 に拡大
         self.entry_slope_min = ctk.CTkEntry(slope_frame, width=65); self.entry_slope_min.pack(side="left")
         ctk.CTkLabel(slope_frame, text="-").pack(side="left", padx=2)
         self.entry_slope_max = ctk.CTkEntry(slope_frame, width=65); self.entry_slope_max.pack(side="left")
@@ -188,7 +169,6 @@ class BaSALA_App(ctk.CTk):
         ctk.CTkLabel(self.bg_tab_frame, text="1. Main Peak (Eg Reference):", font=("Roboto", 11)).pack(anchor="w", padx=2)
         self.p_frame = ctk.CTkFrame(self.bg_tab_frame, fg_color="transparent")
         self.p_frame.pack(fill="x", padx=2)
-        # ★ 幅を 45 -> 65 に拡大
         self.bg_peak_min = ctk.CTkEntry(self.p_frame, width=65); self.bg_peak_min.pack(side="left")
         ctk.CTkLabel(self.p_frame, text="-").pack(side="left", padx=2)
         self.bg_peak_max = ctk.CTkEntry(self.p_frame, width=65); self.bg_peak_max.pack(side="left")
@@ -198,12 +178,10 @@ class BaSALA_App(ctk.CTk):
         self.bg_input_container = ctk.CTkFrame(self.bg_tab_frame, fg_color="transparent")
         self.bg_input_container.pack(fill="x", pady=5)
 
-        # --- A. Linear / Hybrid UI ---
+        # --- A. Linear / Hybrid UI Inputs ---
         self.frame_linear = ctk.CTkFrame(self.bg_input_container, fg_color="transparent")
-        
         ctk.CTkLabel(self.frame_linear, text="2. Loss Base (Flat):", font=("Roboto", 11)).pack(anchor="w", padx=2, pady=(5,0))
         self.b_frame = ctk.CTkFrame(self.frame_linear, fg_color="transparent"); self.b_frame.pack(fill="x", padx=2)
-        # ★ 幅を 45 -> 65 に拡大
         self.bg_base_min = ctk.CTkEntry(self.b_frame, width=65); self.bg_base_min.pack(side="left")
         ctk.CTkLabel(self.b_frame, text="-").pack(side="left", padx=2)
         self.bg_base_max = ctk.CTkEntry(self.b_frame, width=65); self.bg_base_max.pack(side="left")
@@ -211,19 +189,16 @@ class BaSALA_App(ctk.CTk):
         
         ctk.CTkLabel(self.frame_linear, text="3. Loss Slope (Rise):", font=("Roboto", 11)).pack(anchor="w", padx=2, pady=(5,0))
         self.s_frame = ctk.CTkFrame(self.frame_linear, fg_color="transparent"); self.s_frame.pack(fill="x", padx=2)
-        # ★ 幅を 45 -> 65 に拡大
         self.bg_slope_min = ctk.CTkEntry(self.s_frame, width=65); self.bg_slope_min.pack(side="left")
         ctk.CTkLabel(self.s_frame, text="-").pack(side="left", padx=2)
         self.bg_slope_max = ctk.CTkEntry(self.s_frame, width=65); self.bg_slope_max.pack(side="left")
         ctk.CTkButton(self.s_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("bg_slope")).pack(side="right")
 
-        # --- B. Derivative UI ---
+        # --- B. Derivative UI Inputs ---
         self.frame_single = ctk.CTkFrame(self.bg_input_container, fg_color="transparent")
-        
         ctk.CTkLabel(self.frame_single, text="2. Onset Search Region:", font=("Roboto", 11)).pack(anchor="w", padx=2, pady=(5,0))
         ctk.CTkLabel(self.frame_single, text="(Cover both Background & Rising edge)", font=("Roboto", 10), text_color="gray").pack(anchor="w", padx=2)
         self.d_frame = ctk.CTkFrame(self.frame_single, fg_color="transparent"); self.d_frame.pack(fill="x", padx=2)
-        # ★ 幅を 45 -> 65 に拡大
         self.bg_single_min = ctk.CTkEntry(self.d_frame, width=65); self.bg_single_min.pack(side="left")
         ctk.CTkLabel(self.d_frame, text="-").pack(side="left", padx=2)
         self.bg_single_max = ctk.CTkEntry(self.d_frame, width=65); self.bg_single_max.pack(side="left")
@@ -237,19 +212,29 @@ class BaSALA_App(ctk.CTk):
         self.calc_bg_btn = ctk.CTkButton(self.bg_tab_frame, text="Calculate Band Gap", command=self.calculate_bandgap, fg_color="#E07A5F", state="disabled")
         self.calc_bg_btn.pack(pady=5, fill="x")
         
-        # 候補選択ドロップダウン
-        self.frame_candidates = ctk.CTkFrame(self.bg_tab_frame, fg_color="transparent")
-        ctk.CTkLabel(self.frame_candidates, text="Candidates (Curvature Order):", font=("Roboto", 12)).pack(side="left", padx=2)
-        self.combo_candidates = ctk.CTkComboBox(self.frame_candidates, width=220, command=self.on_candidate_selected)
-        self.combo_candidates.pack(side="left", padx=2)
+        # --- UIレイアウトの固定化 (ここが修正ポイント) ---
+        # 1. 候補エリア用フレーム（常にここに存在し、中身だけ入れ替わる）
+        self.frame_candidates_container = ctk.CTkFrame(self.bg_tab_frame, fg_color="transparent")
+        self.frame_candidates_container.pack(pady=5, fill="x")
         
-        self.frame_candidates.pack(pady=5)
+        # 2. 結果エリア用フレーム（常に候補の下に存在）
+        self.frame_result_container = ctk.CTkFrame(self.bg_tab_frame, fg_color="transparent")
+        self.frame_result_container.pack(pady=5, fill="x")
+
+        # コンボボックス (containerの中に配置)
+        self.combo_candidates = ctk.CTkComboBox(self.frame_candidates_container, width=240, 
+                                                values=["Candidates (Curvature Order)"], 
+                                                command=self.on_candidate_selected)
+        self.combo_candidates.pack()
+        self.combo_candidates.set("Candidates (Curvature Order)")
         
-        self.lbl_res_gap = ctk.CTkLabel(self.bg_tab_frame, text="Eg: --- eV", font=ctk.CTkFont(size=18, weight="bold"), text_color="#E07A5F")
-        self.lbl_res_gap.pack(pady=5)
+        # 結果ラベル (containerの中に配置)
+        self.lbl_res_gap = ctk.CTkLabel(self.frame_result_container, text="Eg: --- eV", font=ctk.CTkFont(size=18, weight="bold"), text_color="#E07A5F")
+        self.lbl_res_gap.pack()
 
     def update_bg_ui(self, value):
         """モード切替時のUI更新"""
+        # 入力項目の切り替え
         if value in ["Linear", "Hybrid"]:
             self.frame_single.pack_forget()
             self.frame_linear.pack(fill="x", pady=5)
@@ -257,10 +242,11 @@ class BaSALA_App(ctk.CTk):
             self.frame_linear.pack_forget()
             self.frame_single.pack(fill="x", pady=5)
             
+        # 候補ドロップダウンの表示/非表示 (コンテナは動かさず、中身だけ制御)
         if value == "Linear":
-            self.frame_candidates.pack_forget()
+            self.combo_candidates.pack_forget() # 隠す
         else:
-            self.frame_candidates.pack(pady=5)
+            self.combo_candidates.pack() # 表示する (コンテナ内での位置は変わらない)
 
     def _create_main_area(self):
         """メイングラフエリア"""
@@ -562,20 +548,22 @@ class BaSALA_App(ctk.CTk):
             mid_idx = len(x_s) // 2
             self.candidates = [(x_s[mid_idx], y_s_smooth[mid_idx], 0)]
 
-        # --- 表示 (数値のみ、Best/Scoreなし) ---
-        combo_values = []
+        # --- 表示: ヘッダー + 候補 ---
+        combo_values = ["Candidates (Curvature Order)"] # ヘッダー
         for i, (cx, cy, r_score) in enumerate(self.candidates):
             gap_val = abs(cx - peak_x)
             combo_values.append(f"{i+1}. Eg={gap_val:.3f} eV")
         
         self.combo_candidates.configure(values=combo_values)
-        self.combo_candidates.set(combo_values[0])
+        self.combo_candidates.set(combo_values[1]) # 1位を選択状態にする
         
         best_x, best_y, _ = self.candidates[0]
         self.draw_result_marker(best_x, best_y, abs(best_x - peak_x), "Selected Candidate")
 
     def on_candidate_selected(self, choice):
         """候補選択時の再描画"""
+        if choice.startswith("Candidates"): return # ヘッダー無視
+        
         if not self.candidates or not self.calc_context: return
         try:
             idx = int(choice.split(".")[0]) - 1
