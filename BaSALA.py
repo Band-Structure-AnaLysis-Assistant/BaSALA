@@ -1,3 +1,5 @@
+import sys
+import os
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
@@ -8,8 +10,24 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.widgets import SpanSelector
 from scipy.optimize import curve_fit
 from scipy.signal import savgol_filter, find_peaks
-import os
 from io import StringIO
+
+# ==========================================
+# 0. リソースパス管理 (アイコン埋め込み用)
+# ==========================================
+def resource_path(relative_path):
+    """ 
+    PyInstallerでexe化した際、一時フォルダ(_MEIPASS)から
+    リソースファイル(アイコン等)への絶対パスを取得する関数
+    """
+    try:
+        # PyInstallerで実行中はこのパスが作られる
+        base_path = sys._MEIPASS
+    except Exception:
+        # 開発中(通常実行)はカレントディレクトリを使用
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
 
 # ==========================================
 # 1. アプリケーション設定エリア
@@ -20,16 +38,6 @@ ctk.set_default_color_theme("dark-blue") # テーマカラー
 # ==========================================
 # 2. 数学・物理計算用 関数群
 # ==========================================
-
-def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
-    try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
-
-    return os.path.join(base_path, relative_path)
 
 def linear_func(x, a, b):
     """線形近似用関数 (y = ax + b)"""
@@ -82,6 +90,7 @@ class DataSelectionDialog(ctk.CTkToplevel):
         self.selected_region = None
         self.selected_file_col = None
         
+        # モーダルウィンドウ設定
         self.grab_set()
         self.focus_set()
 
@@ -142,11 +151,16 @@ class BaSALA_App(ctk.CTk):
         self.geometry("1280x900")
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        # アプリのアイコン設定
+        # ---------------------------------------------------------
+        # アイコン設定 (埋め込みファイル対応)
+        # ---------------------------------------------------------
         try:
-            self.iconbitmap("app_icon.ico")
+            # resource_pathを使うことで、exe内部のアイコンを探しに行きます
+            self.iconbitmap(resource_path("app_icon.ico"))
         except:
-            pass # アイコンファイルが見つからない場合は無視
+            # アイコンが見つからない場合(開発環境等)はエラーを出さずにスキップ
+            pass
+        # ---------------------------------------------------------
 
         self.file_path = None
         self.df = None
@@ -355,6 +369,32 @@ class BaSALA_App(ctk.CTk):
     # 5. 操作ロジック
     # ==========================================
 
+    def get_current_intensity(self):
+        """Shirley補正が有効なら補正後データ、無効なら生データを返す"""
+        if self.chk_shirley_var.get() and self.intensity_corrected is not None:
+            return self.intensity_corrected
+        return self.intensity
+
+    def plot_base_graph(self):
+        """グラフの基本描画（生データ or 補正データ）"""
+        if self.energy is None: return
+        self.ax.clear()
+        
+        # 生データのプロット
+        self.ax.plot(self.energy, self.intensity, color='cyan', label='Raw Data', alpha=0.6, linewidth=1)
+        
+        # Shirley補正データのプロット
+        if self.chk_shirley_var.get() and self.intensity_corrected is not None:
+            self.ax.plot(self.energy, self.intensity_corrected, color='white', label='Shirley Corrected', linewidth=1.5)
+            if self.bg_data is not None:
+                self.ax.plot(self.energy, self.bg_data, color='gray', linestyle='--', alpha=0.5, label='Background')
+
+        self.ax.set_xlabel("Binding Energy (eV)")
+        self.ax.set_ylabel("Intensity (a.u.)")
+        self.ax.invert_xaxis()
+        self.ax.legend()
+        self.canvas.draw()
+
     def auto_scale_y(self):
         if self.intensity is None: return
         y_max_raw = np.max(self.intensity)
@@ -365,6 +405,12 @@ class BaSALA_App(ctk.CTk):
         self.ax.set_ylim(y_min_curr - margin, y_max_raw + margin)
 
     def activate_selector(self, mode):
+        if self.toolbar.mode:
+            if 'zoom' in self.toolbar.mode:
+                self.toolbar.zoom()
+            elif 'pan' in self.toolbar.mode:
+                self.toolbar.pan()
+                
         self.selection_mode = mode
         if self.span: self.span.set_visible(False); self.span = None
         
