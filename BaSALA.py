@@ -21,6 +21,16 @@ ctk.set_default_color_theme("dark-blue") # テーマカラー
 # 2. 数学・物理計算用 関数群
 # ==========================================
 
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
 def linear_func(x, a, b):
     """線形近似用関数 (y = ax + b)"""
     return a * x + b
@@ -131,6 +141,12 @@ class BaSALA_App(ctk.CTk):
         self.title("BaSALA - Band Structure AnaLysis Assistant (v1.0.0)")
         self.geometry("1280x900")
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+        # アプリのアイコン設定
+        try:
+            self.iconbitmap("app_icon.ico")
+        except:
+            pass # アイコンファイルが見つからない場合は無視
 
         self.file_path = None
         self.df = None
