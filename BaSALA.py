@@ -9,6 +9,7 @@ from matplotlib.widgets import SpanSelector
 from scipy.optimize import curve_fit
 from scipy.signal import savgol_filter, find_peaks
 import os
+from io import StringIO
 
 # ==========================================
 # 1. アプリケーション設定エリア
@@ -57,15 +58,88 @@ def calculate_shirley_bg(x, y, tol=1e-5, max_iters=50):
     return bg_original_order
 
 # ==========================================
-# 3. GUI アプリケーションクラス
+# 3. GUI コンポーネント (ダイアログ等)
+# ==========================================
+
+class DataSelectionDialog(ctk.CTkToplevel):
+    """MultiPakデータのRegion/File選択用ダイアログ"""
+    def __init__(self, parent, data_blocks, callback):
+        super().__init__(parent)
+        self.title("Select Data")
+        self.geometry("350x250")
+        self.data_blocks = data_blocks
+        self.callback = callback
+        self.selected_region = None
+        self.selected_file_col = None
+        
+        # モーダル化
+        self.grab_set()
+        self.focus_set()
+
+        # Region Selection
+        ctk.CTkLabel(self, text="1. Select Region:", font=("Roboto", 12, "bold")).pack(pady=(20, 5), padx=20, anchor="w")
+        self.combo_region = ctk.CTkComboBox(self, values=list(data_blocks.keys()), command=self.on_region_change)
+        self.combo_region.pack(pady=5, padx=20, fill="x")
+        
+        # File Column Selection
+        ctk.CTkLabel(self, text="2. Select File #:", font=("Roboto", 12, "bold")).pack(pady=(10, 5), padx=20, anchor="w")
+        self.combo_file = ctk.CTkComboBox(self, values=[])
+        self.combo_file.pack(pady=5, padx=20, fill="x")
+        
+        # OK Button
+        self.btn_ok = ctk.CTkButton(self, text="Load Data", command=self.on_ok, fg_color="#2d8d2d")
+        self.btn_ok.pack(pady=20, padx=20, fill="x")
+        
+        # 初期化
+        if data_blocks:
+            first_region = list(data_blocks.keys())[0]
+            self.combo_region.set(first_region)
+            self.on_region_change(first_region)
+
+    def on_region_change(self, region):
+        """Region変更時にFile列リストを更新"""
+        df = self.data_blocks[region]
+        # 1列目はエネルギー(x軸)と仮定し、2列目以降をデータ列とする
+        cols = [str(c) for c in df.columns[1:]] 
+        self.combo_file.configure(values=cols)
+        if cols:
+            self.combo_file.set(cols[0])
+
+    def on_ok(self):
+        region = self.combo_region.get()
+        file_col = self.combo_file.get()
+        
+        df = self.data_blocks[region]
+        
+        try:
+            energy = pd.to_numeric(df.iloc[:, 0], errors='coerce').values
+            intensity = pd.to_numeric(df[file_col], errors='coerce').values
+            
+            # ★ 変更: NaNを除去し、かつ「Energy=0 かつ Intensity=0」のデータも除外
+            mask = ~np.isnan(energy) & ~np.isnan(intensity) & ~((energy == 0) & (intensity == 0))
+            energy = energy[mask]
+            intensity = intensity[mask]
+            
+            if len(energy) == 0:
+                messagebox.showerror("Error", "Selected data contains no valid values.")
+                return
+
+            self.callback(energy, intensity, f"{region} ({file_col})")
+            self.destroy()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to extract data: {e}")
+
+# ==========================================
+# 4. GUI アプリケーションクラス
 # ==========================================
 
 class BaSALA_App(ctk.CTk):
     def __init__(self):
         super().__init__()
         
-        # ★ ウィンドウタイトル設定 (v2.16)
-        self.title("BaSALA - Band Structure AnaLysis Assistant (v0.2.16)")
+        # ★ ウィンドウタイトル設定 (v0.2.17)
+        self.title("BaSALA - Band Structure AnaLysis Assistant (v0.2.17)")
         self.geometry("1280x900")
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -79,7 +153,7 @@ class BaSALA_App(ctk.CTk):
         self.span = None
         self.selection_mode = None
         
-        # 候補選択用 (VBM & BandGap)
+        # 候補選択用
         self.vbm_candidates = []
         self.vbm_context = {}
         self.bg_candidates = []
@@ -120,7 +194,7 @@ class BaSALA_App(ctk.CTk):
         self._init_bandgap_tab()
 
     def _init_vbm_tab(self):
-        """Tab 1: VBM解析 (Updated)"""
+        """Tab 1: VBM解析"""
         frame = ctk.CTkFrame(self.tab_vbm, fg_color="transparent")
         frame.pack(fill="both", expand=True)
         
@@ -137,9 +211,8 @@ class BaSALA_App(ctk.CTk):
         self.vbm_input_container = ctk.CTkFrame(frame, fg_color="transparent")
         self.vbm_input_container.pack(fill="x", pady=5)
 
-        # --- A. Linear / Hybrid UI Inputs ---
+        # Linear UI
         self.frame_vbm_linear = ctk.CTkFrame(self.vbm_input_container, fg_color="transparent")
-        
         ctk.CTkLabel(self.frame_vbm_linear, text="1. Base Range (Flat):", font=("Roboto", 11)).pack(anchor="w", padx=2)
         bg_frame = ctk.CTkFrame(self.frame_vbm_linear, fg_color="transparent"); bg_frame.pack(fill="x", padx=2)
         self.entry_vbm_base_min = ctk.CTkEntry(bg_frame, width=65); self.entry_vbm_base_min.pack(side="left")
@@ -154,7 +227,7 @@ class BaSALA_App(ctk.CTk):
         self.entry_vbm_slope_max = ctk.CTkEntry(slope_frame, width=65); self.entry_vbm_slope_max.pack(side="left")
         ctk.CTkButton(slope_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("vbm_slope")).pack(side="right")
 
-        # --- B. Derivative UI Inputs ---
+        # Derivative UI
         self.frame_vbm_single = ctk.CTkFrame(self.vbm_input_container, fg_color="transparent")
         ctk.CTkLabel(self.frame_vbm_single, text="1. Search Region:", font=("Roboto", 11)).pack(anchor="w", padx=2, pady=(5,0))
         ctk.CTkLabel(self.frame_vbm_single, text="(Cover Background & Edge)", font=("Roboto", 10), text_color="gray").pack(anchor="w", padx=2)
@@ -164,40 +237,31 @@ class BaSALA_App(ctk.CTk):
         self.entry_vbm_single_max = ctk.CTkEntry(d_frame, width=65); self.entry_vbm_single_max.pack(side="left")
         ctk.CTkButton(d_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("vbm_single")).pack(side="right")
 
-        # 初期表示
         self.frame_vbm_linear.pack(fill="x", pady=5)
 
-        # Buttons
         self.btn_reset_mode_vbm = ctk.CTkButton(frame, text="Stop Selection", fg_color="transparent", border_width=1, height=24, command=self.deactivate_selector)
         self.btn_reset_mode_vbm.pack(pady=10)
         
         self.calc_vbm_btn = ctk.CTkButton(frame, text="Calculate VBM", command=self.calculate_vbm, fg_color="#2d8d2d", state="disabled")
         self.calc_vbm_btn.pack(padx=5, pady=15, fill="x")
         
-        # --- UI配置修正: 結果ラベルを「上」、候補を「下」にする ---
-        
-        # 1. 結果表示エリア (常に表示・固定位置)
+        # 固定UIコンテナ
         self.frame_vbm_res_container = ctk.CTkFrame(frame, fg_color="transparent")
         self.frame_vbm_res_container.pack(pady=5, fill="x")
-        
         self.vbm_label = ctk.CTkLabel(self.frame_vbm_res_container, text="VBM: --- eV", font=ctk.CTkFont(size=18, weight="bold"), text_color="#4db6ac")
         self.vbm_label.pack()
 
-        # 2. 候補表示エリア (Deriv/Hybridでのみ表示)
         self.frame_vbm_cand_container = ctk.CTkFrame(frame, fg_color="transparent")
         self.frame_vbm_cand_container.pack(pady=5, fill="x")
-
         self.combo_vbm_candidates = ctk.CTkComboBox(self.frame_vbm_cand_container, width=240, 
                                                     values=["Candidates (Curvature Order)"], 
                                                     command=self.on_vbm_candidate_selected)
         self.combo_vbm_candidates.set("Candidates (Curvature Order)")
-        # Linear時は隠すので初期はpackしない (updateで制御)
-
-        # 初期UI更新
+        
         self.update_vbm_ui("Linear")
 
     def _init_bandgap_tab(self):
-        """Tab 2: Band Gap解析 (Updated)"""
+        """Tab 2: Band Gap解析"""
         frame = ctk.CTkFrame(self.tab_bg, fg_color="transparent")
         frame.pack(fill="both", expand=True)
 
@@ -208,7 +272,6 @@ class BaSALA_App(ctk.CTk):
         self.seg_bg_mode.pack(pady=10, padx=5, fill="x")
         self.seg_bg_mode.set("Linear")
 
-        # 1. Main Peak
         ctk.CTkLabel(frame, text="1. Main Peak (Eg Reference):", font=("Roboto", 11)).pack(anchor="w", padx=2)
         p_frame = ctk.CTkFrame(frame, fg_color="transparent"); p_frame.pack(fill="x", padx=2)
         self.bg_peak_min = ctk.CTkEntry(p_frame, width=65); self.bg_peak_min.pack(side="left")
@@ -216,11 +279,9 @@ class BaSALA_App(ctk.CTk):
         self.bg_peak_max = ctk.CTkEntry(p_frame, width=65); self.bg_peak_max.pack(side="left")
         ctk.CTkButton(p_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("bg_peak")).pack(side="right")
 
-        # Input Container
         self.bg_input_container = ctk.CTkFrame(frame, fg_color="transparent")
         self.bg_input_container.pack(fill="x", pady=5)
 
-        # --- A. Linear / Hybrid UI Inputs ---
         self.frame_bg_linear = ctk.CTkFrame(self.bg_input_container, fg_color="transparent")
         ctk.CTkLabel(self.frame_bg_linear, text="2. Loss Base (Flat):", font=("Roboto", 11)).pack(anchor="w", padx=2, pady=(5,0))
         b_frame = ctk.CTkFrame(self.frame_bg_linear, fg_color="transparent"); b_frame.pack(fill="x", padx=2)
@@ -236,7 +297,6 @@ class BaSALA_App(ctk.CTk):
         self.bg_slope_max = ctk.CTkEntry(s_frame, width=65); self.bg_slope_max.pack(side="left")
         ctk.CTkButton(s_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("bg_slope")).pack(side="right")
 
-        # --- B. Derivative UI Inputs ---
         self.frame_bg_single = ctk.CTkFrame(self.bg_input_container, fg_color="transparent")
         ctk.CTkLabel(self.frame_bg_single, text="2. Onset Search Region:", font=("Roboto", 11)).pack(anchor="w", padx=2, pady=(5,0))
         ctk.CTkLabel(self.frame_bg_single, text="(Cover Background & Edge)", font=("Roboto", 10), text_color="gray").pack(anchor="w", padx=2)
@@ -246,65 +306,51 @@ class BaSALA_App(ctk.CTk):
         self.bg_single_max = ctk.CTkEntry(d_frame, width=65); self.bg_single_max.pack(side="left")
         ctk.CTkButton(d_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("bg_single")).pack(side="right")
 
-        # 初期表示
         self.frame_bg_linear.pack(fill="x", pady=5)
 
-        # Buttons
         ctk.CTkButton(frame, text="Stop Selection", fg_color="transparent", border_width=1, height=24, command=self.deactivate_selector).pack(pady=10)
         self.calc_bg_btn = ctk.CTkButton(frame, text="Calculate Band Gap", command=self.calculate_bandgap, fg_color="#E07A5F", state="disabled")
         self.calc_bg_btn.pack(pady=5, fill="x")
         
-        # --- UI配置修正: 結果ラベルを「上」、候補を「下」にする ---
-        
-        # 1. 結果表示エリア (常に表示)
         self.frame_bg_res_container = ctk.CTkFrame(frame, fg_color="transparent")
         self.frame_bg_res_container.pack(pady=5, fill="x")
-        
         self.lbl_res_gap = ctk.CTkLabel(self.frame_bg_res_container, text="Eg: --- eV", font=ctk.CTkFont(size=18, weight="bold"), text_color="#E07A5F")
         self.lbl_res_gap.pack()
 
-        # 2. 候補表示エリア (Deriv/Hybridでのみ表示)
         self.frame_bg_cand_container = ctk.CTkFrame(frame, fg_color="transparent")
         self.frame_bg_cand_container.pack(pady=5, fill="x")
-
         self.combo_bg_candidates = ctk.CTkComboBox(self.frame_bg_cand_container, width=240, 
                                                    values=["Candidates (Curvature Order)"], 
                                                    command=self.on_bg_candidate_selected)
         self.combo_bg_candidates.set("Candidates (Curvature Order)")
         
-        # 初期UI更新
         self.update_bg_ui("Linear")
 
     def update_vbm_ui(self, value):
-        """VBMタブ UI更新"""
         if value in ["Linear", "Hybrid"]:
             self.frame_vbm_single.pack_forget()
             self.frame_vbm_linear.pack(fill="x", pady=5)
         else:
             self.frame_vbm_linear.pack_forget()
             self.frame_vbm_single.pack(fill="x", pady=5)
-            
         if value == "Linear":
             self.combo_vbm_candidates.pack_forget()
         else:
             self.combo_vbm_candidates.pack()
 
     def update_bg_ui(self, value):
-        """Band Gapタブ UI更新"""
         if value in ["Linear", "Hybrid"]:
             self.frame_bg_single.pack_forget()
             self.frame_bg_linear.pack(fill="x", pady=5)
         else:
             self.frame_bg_linear.pack_forget()
             self.frame_bg_single.pack(fill="x", pady=5)
-            
         if value == "Linear":
             self.combo_bg_candidates.pack_forget()
         else:
             self.combo_bg_candidates.pack()
 
     def _create_main_area(self):
-        """メイングラフエリア"""
         self.main_frame = ctk.CTkFrame(self)
         self.main_frame.pack(side="right", fill="both", expand=True, padx=10, pady=10)
         
@@ -320,7 +366,7 @@ class BaSALA_App(ctk.CTk):
         self.toolbar.update()
 
     # ==========================================
-    # 4. 操作ロジック
+    # 5. 操作ロジック (Updated)
     # ==========================================
 
     def auto_scale_y(self):
@@ -385,48 +431,118 @@ class BaSALA_App(ctk.CTk):
         self.plot_base_graph()
 
     def load_csv(self):
+        """CSVファイルの読み込み (MultiPak対応)"""
         file_path = filedialog.askopenfilename(filetypes=[("Data Files", "*.csv *.txt *.dat"), ("All Files", "*.*")])
         if not file_path: return
         
-        sep = {", (Comma)": ",", "\\t (Tab)": "\t", "Space": r"\s+"}[self.sep_option.get()]
-        
         try:
-            self.df = pd.read_csv(file_path, sep=sep, header=None, engine='python')
-            if self.df.shape[1] < 2: return
+            # 1. まずファイルの中身をテキストとして軽く読んでMultiPakかどうか判定
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                head_lines = [next(f) for _ in range(50)] # 先頭50行程度を確認
             
-            self.energy = pd.to_numeric(self.df.iloc[:, 0], errors='coerce').values
-            self.intensity = pd.to_numeric(self.df.iloc[:, 1], errors='coerce').values
-            mask = ~np.isnan(self.energy) & ~np.isnan(self.intensity)
-            self.energy = self.energy[mask]; self.intensity = self.intensity[mask]
-            if len(self.energy) == 0: return
+            is_multipak = any("file#" in line.lower() for line in head_lines)
+            
+            if is_multipak:
+                self._load_multipak(file_path)
+            else:
+                self._load_normal_csv(file_path)
+                
+        except Exception as e: messagebox.showerror("Error", f"Failed to open file: {e}")
 
-            min_e, max_e = np.min(self.energy), np.max(self.energy)
+    def _load_multipak(self, file_path):
+        """MultiPak形式の読み込み & ブロック解析"""
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
             
-            # 初期範囲設定
-            # VBM Tab
-            self.entry_vbm_base_min.delete(0, tk.END); self.entry_vbm_base_min.insert(0, f"{min_e:.1f}")
-            self.entry_vbm_base_max.delete(0, tk.END); self.entry_vbm_base_max.insert(0, f"{min_e+1.0:.1f}") 
-            self.entry_vbm_slope_min.delete(0, tk.END); self.entry_vbm_slope_min.insert(0, f"{min_e+1.5:.1f}")
-            self.entry_vbm_slope_max.delete(0, tk.END); self.entry_vbm_slope_max.insert(0, f"{min_e+2.5:.1f}") 
-            self.entry_vbm_single_min.delete(0, tk.END); self.entry_vbm_single_min.insert(0, f"{min_e:.1f}")
-            self.entry_vbm_single_max.delete(0, tk.END); self.entry_vbm_single_max.insert(0, f"{min_e+3.0:.1f}") 
+        data_blocks = {}
+        header_indices = [i for i, line in enumerate(lines) if "file#" in line.lower()]
+        
+        for i, start_idx in enumerate(header_indices):
+            # Region名推測 (ヘッダーの2行前にあることが多い)
+            if start_idx >= 2:
+                region_name = lines[start_idx - 2].strip()
+                if not region_name or region_name == "no area description":
+                    region_name = f"Region {i+1}"
+            else:
+                region_name = f"Region {i+1}"
             
-            # Band Gap Tab
-            self.bg_peak_min.delete(0, tk.END); self.bg_peak_min.insert(0, f"{min_e:.1f}")
-            self.bg_peak_max.delete(0, tk.END); self.bg_peak_max.insert(0, f"{min_e+0.8:.1f}") 
-            self.bg_base_min.delete(0, tk.END); self.bg_base_min.insert(0, f"{min_e+4.0:.1f}")
-            self.bg_base_max.delete(0, tk.END); self.bg_base_max.insert(0, f"{min_e+5.0:.1f}") 
-            self.bg_slope_min.delete(0, tk.END); self.bg_slope_min.insert(0, f"{min_e+5.5:.1f}")
-            self.bg_slope_max.delete(0, tk.END); self.bg_slope_max.insert(0, f"{min_e+6.5:.1f}") 
-            self.bg_single_min.delete(0, tk.END); self.bg_single_min.insert(0, f"{min_e+4.0:.1f}")
-            self.bg_single_max.delete(0, tk.END); self.bg_single_max.insert(0, f"{min_e+7.0:.1f}")
+            # ブロックの終了行
+            if i < len(header_indices) - 1:
+                end_idx = max(start_idx, header_indices[i+1] - 4)
+            else:
+                end_idx = len(lines)
             
-            self.chk_shirley_var.set(False); self.intensity_corrected = None; self.bg_data = None
+            # データフレーム化
+            block_str = "".join(lines[start_idx:end_idx])
+            try:
+                df = pd.read_csv(StringIO(block_str))
+                # 重複名対策
+                original_name = region_name
+                counter = 2
+                while region_name in data_blocks:
+                    region_name = f"{original_name}_{counter}"
+                    counter += 1
+                data_blocks[region_name] = df
+            except: pass
             
-            self.plot_base_graph()
-            self.calc_vbm_btn.configure(state="normal"); self.calc_bg_btn.configure(state="normal")
+        if not data_blocks:
+            messagebox.showerror("Error", "Could not parse MultiPak format.")
+            return
             
-        except Exception as e: messagebox.showerror("Error", str(e))
+        # 選択ダイアログ表示
+        DataSelectionDialog(self, data_blocks, self._on_data_loaded)
+
+    def _load_normal_csv(self, file_path):
+        """通常のCSV読み込み"""
+        sep = {", (Comma)": ",", "\\t (Tab)": "\t", "Space": r"\s+"}[self.sep_option.get()]
+        df = pd.read_csv(file_path, sep=sep, header=None, engine='python')
+        if df.shape[1] < 2: 
+            messagebox.showerror("Error", "Invalid data format (need at least 2 cols).")
+            return
+        
+        energy = pd.to_numeric(df.iloc[:, 0], errors='coerce').values
+        intensity = pd.to_numeric(df.iloc[:, 1], errors='coerce').values
+        
+        # ★ 変更: NaNを除去し、かつ「Energy=0 かつ Intensity=0」のデータも除外
+        mask = ~np.isnan(energy) & ~np.isnan(intensity) & ~((energy == 0) & (intensity == 0))
+        energy = energy[mask]
+        intensity = intensity[mask]
+        
+        if len(energy) == 0:
+            messagebox.showerror("Error", "No valid numeric data found.")
+            return
+            
+        self._on_data_loaded(energy, intensity, "Raw Spectrum")
+
+    def _on_data_loaded(self, energy, intensity, label_text):
+        """データ読み込み完了後の共通処理"""
+        self.energy = energy
+        self.intensity = intensity
+        
+        min_e, max_e = np.min(self.energy), np.max(self.energy)
+        
+        # 範囲リセット
+        self.entry_vbm_base_min.delete(0, tk.END); self.entry_vbm_base_min.insert(0, f"{min_e:.1f}")
+        self.entry_vbm_base_max.delete(0, tk.END); self.entry_vbm_base_max.insert(0, f"{min_e+1.0:.1f}")
+        self.entry_vbm_slope_min.delete(0, tk.END); self.entry_vbm_slope_min.insert(0, f"{min_e+1.5:.1f}")
+        self.entry_vbm_slope_max.delete(0, tk.END); self.entry_vbm_slope_max.insert(0, f"{min_e+2.5:.1f}")
+        self.entry_vbm_single_min.delete(0, tk.END); self.entry_vbm_single_min.insert(0, f"{min_e:.1f}")
+        self.entry_vbm_single_max.delete(0, tk.END); self.entry_vbm_single_max.insert(0, f"{min_e+3.0:.1f}")
+        
+        self.bg_peak_min.delete(0, tk.END); self.bg_peak_min.insert(0, f"{min_e:.1f}")
+        self.bg_peak_max.delete(0, tk.END); self.bg_peak_max.insert(0, f"{min_e+0.8:.1f}")
+        self.bg_base_min.delete(0, tk.END); self.bg_base_min.insert(0, f"{min_e+4.0:.1f}")
+        self.bg_base_max.delete(0, tk.END); self.bg_base_max.insert(0, f"{min_e+5.0:.1f}")
+        self.bg_slope_min.delete(0, tk.END); self.bg_slope_min.insert(0, f"{min_e+5.5:.1f}")
+        self.bg_slope_max.delete(0, tk.END); self.bg_slope_max.insert(0, f"{min_e+6.5:.1f}")
+        self.bg_single_min.delete(0, tk.END); self.bg_single_min.insert(0, f"{min_e+4.0:.1f}")
+        self.bg_single_max.delete(0, tk.END); self.bg_single_max.insert(0, f"{min_e+7.0:.1f}")
+        
+        self.chk_shirley_var.set(False); self.intensity_corrected = None; self.bg_data = None
+        
+        self.plot_base_graph()
+        self.calc_vbm_btn.configure(state="normal")
+        self.calc_bg_btn.configure(state="normal")
 
     def plot_base_graph(self):
         self.ax.clear()
@@ -444,10 +560,9 @@ class BaSALA_App(ctk.CTk):
         return self.intensity_corrected if (self.chk_shirley_var.get() and self.intensity_corrected is not None) else self.intensity
 
     # ==========================================
-    # 5. 計算ロジック
+    # 6. 計算ロジック
     # ==========================================
 
-    # --- Common Candidate Finder ---
     def _find_candidates(self, search_min, search_max, y_data):
         target_window = 21 
         w_len = min(target_window, len(y_data))
@@ -481,7 +596,6 @@ class BaSALA_App(ctk.CTk):
 
     # --- VBM Calculation ---
     def calculate_vbm(self):
-        """【Tab 1】VBM解析 (Linear/Deriv/Hybrid)"""
         if self.energy is None: return
         try:
             y_data = self.get_current_intensity()
@@ -490,7 +604,6 @@ class BaSALA_App(ctk.CTk):
             
             self.plot_base_graph()
             
-            # --- Linear Logic ---
             if mode == "Linear":
                 bg_r = (float(self.entry_vbm_base_min.get()), float(self.entry_vbm_base_max.get()))
                 sl_r = (float(self.entry_vbm_slope_min.get()), float(self.entry_vbm_slope_max.get()))
@@ -503,7 +616,6 @@ class BaSALA_App(ctk.CTk):
                 
                 self.vbm_context.update({'popt_bg': popt_bg, 'popt_sl': popt_sl, 'bg_r': bg_r, 'sl_r': sl_r})
                 
-                # Plot
                 x_plot = np.linspace(min(self.energy), max(self.energy), 200)
                 self.ax.plot(x_plot, linear_func(x_plot, *popt_bg), 'b--', alpha=0.8, label='Base Fit')
                 self.ax.plot(x_plot, linear_func(x_plot, *popt_sl), 'r--', alpha=0.8, label='Slope Fit')
@@ -511,7 +623,6 @@ class BaSALA_App(ctk.CTk):
                 self.ax.axvspan(sl_r[0], sl_r[1], color='red', alpha=0.1)
                 self.draw_vbm_result(vbm_x, vbm_y, "VBM (Linear)")
 
-            # --- Hybrid Logic ---
             elif mode == "Hybrid":
                 bg_r = (float(self.entry_vbm_base_min.get()), float(self.entry_vbm_base_max.get()))
                 sl_r = (float(self.entry_vbm_slope_min.get()), float(self.entry_vbm_slope_max.get()))
@@ -523,38 +634,31 @@ class BaSALA_App(ctk.CTk):
                 
                 self.vbm_context.update({'popt_bg': popt_bg, 'popt_sl': popt_sl, 'bg_r': bg_r, 'sl_r': sl_r})
                 
-                # Linear Fit Plot
                 x_plot = np.linspace(min(self.energy), max(self.energy), 200)
                 self.ax.plot(x_plot, linear_func(x_plot, *popt_bg), 'b--', alpha=0.3)
                 self.ax.plot(x_plot, linear_func(x_plot, *popt_sl), 'r--', alpha=0.3)
                 self.ax.axvspan(bg_r[0], bg_r[1], color='blue', alpha=0.1)
                 self.ax.axvspan(sl_r[0], sl_r[1], color='red', alpha=0.1)
                 
-                # Search
                 search_min, search_max = linear_vbm_x - 1.5, linear_vbm_x + 1.5
                 cands, xs, ys = self._find_candidates(search_min, search_max, y_data)
                 self.vbm_candidates = cands
                 self.vbm_context.update({'x_smooth': xs, 'y_smooth': ys})
                 self.ax.axvspan(search_min, search_max, color='orange', alpha=0.1, label='Search Region')
-                
                 self.update_vbm_candidates_dropdown()
 
-            # --- Deriv Logic ---
             elif mode == "Deriv":
                 s_min = float(self.entry_vbm_single_min.get())
                 s_max = float(self.entry_vbm_single_max.get())
                 cands, xs, ys = self._find_candidates(s_min, s_max, y_data)
                 self.vbm_candidates = cands
                 self.vbm_context.update({'x_smooth': xs, 'y_smooth': ys})
-                
                 if xs is not None:
                     self.ax.plot(xs, ys, color='orange', linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
                 self.ax.axvspan(s_min, s_max, color='orange', alpha=0.1, label='Search Region')
-                
                 self.update_vbm_candidates_dropdown()
 
             self.ax.legend(); self.canvas.draw()
-            
         except Exception as e: messagebox.showerror("Calc Error", str(e))
 
     def update_vbm_candidates_dropdown(self):
@@ -563,7 +667,6 @@ class BaSALA_App(ctk.CTk):
             vals.append(f"{i+1}. VBM={cx:.3f} eV")
         self.combo_vbm_candidates.configure(values=vals)
         self.combo_vbm_candidates.set(vals[1] if len(vals)>1 else vals[0])
-        
         if self.vbm_candidates:
             bx, by, _ = self.vbm_candidates[0]
             self.draw_vbm_result(bx, by, "Selected Onset")
@@ -575,19 +678,15 @@ class BaSALA_App(ctk.CTk):
             idx = int(choice.split(".")[0]) - 1
             cx, cy, _ = self.vbm_candidates[idx]
             self.plot_base_graph()
-            
-            # Re-draw context
-            if 'popt_bg' in self.vbm_context: # Hybrid context
+            if 'popt_bg' in self.vbm_context:
                 popt_bg = self.vbm_context['popt_bg']; popt_sl = self.vbm_context['popt_sl']
                 x_plot = np.linspace(min(self.energy), max(self.energy), 200)
                 self.ax.plot(x_plot, linear_func(x_plot, *popt_bg), 'b--', alpha=0.3)
                 self.ax.plot(x_plot, linear_func(x_plot, *popt_sl), 'r--', alpha=0.3)
                 self.ax.axvspan(self.vbm_context['bg_r'][0], self.vbm_context['bg_r'][1], color='blue', alpha=0.1)
                 self.ax.axvspan(self.vbm_context['sl_r'][0], self.vbm_context['sl_r'][1], color='red', alpha=0.1)
-                
             if 'x_smooth' in self.vbm_context:
                 self.ax.plot(self.vbm_context['x_smooth'], self.vbm_context['y_smooth'], color='orange', linestyle=':', linewidth=2, alpha=0.8)
-            
             self.draw_vbm_result(cx, cy, "Selected Onset")
             self.ax.legend(); self.canvas.draw()
         except: pass
@@ -597,16 +696,13 @@ class BaSALA_App(ctk.CTk):
         self.ax.axvline(x, color='green', linestyle=':', alpha=0.8)
         self.vbm_label.configure(text=f"VBM: {x:.3f} eV")
 
-
     # --- Band Gap Calculation ---
     def calculate_bandgap(self):
-        """【Tab 2】Band Gap解析"""
         if self.energy is None: return
         try:
             y_data = self.get_current_intensity()
             mode = self.bg_mode_var.get()
             
-            # Main Peak Fit
             pk_r = (float(self.bg_peak_min.get()), float(self.bg_peak_max.get()))
             mask_pk = (self.energy >= pk_r[0]) & (self.energy <= pk_r[1])
             if not np.any(mask_pk): raise ValueError("Peak range empty")
@@ -628,7 +724,6 @@ class BaSALA_App(ctk.CTk):
             self.ax.axvline(peak_x, color='green', linestyle=':', alpha=0.6)
             self.ax.axvspan(pk_r[0], pk_r[1], color='green', alpha=0.1)
 
-            # --- Linear Logic ---
             if mode == "Linear":
                 bg_r = (float(self.bg_base_min.get()), float(self.bg_base_max.get()))
                 sl_r = (float(self.bg_slope_min.get()), float(self.bg_slope_max.get()))
@@ -642,7 +737,6 @@ class BaSALA_App(ctk.CTk):
                 
                 self.bg_context.update({'popt_bg': popt_bg, 'popt_sl': popt_sl, 'bg_r': bg_r, 'sl_r': sl_r})
                 
-                # Plot
                 xp = np.linspace(min(self.energy), max(self.energy), 200)
                 self.ax.plot(xp, linear_func(xp, *popt_bg), 'b--', alpha=0.5, label='Base Fit')
                 self.ax.plot(xp, linear_func(xp, *popt_sl), 'r--', alpha=0.5, label='Slope Fit')
@@ -650,7 +744,6 @@ class BaSALA_App(ctk.CTk):
                 self.ax.axvspan(sl_r[0], sl_r[1], color='red', alpha=0.1)
                 self.draw_bg_result(onset_x, onset_y, gap, "Linear Onset")
 
-            # --- Hybrid Logic ---
             elif mode == "Hybrid":
                 bg_r = (float(self.bg_base_min.get()), float(self.bg_base_max.get()))
                 sl_r = (float(self.bg_slope_min.get()), float(self.bg_slope_max.get()))
@@ -673,21 +766,17 @@ class BaSALA_App(ctk.CTk):
                 self.bg_candidates = cands
                 self.bg_context.update({'x_smooth': xs, 'y_smooth': ys})
                 self.ax.axvspan(s_min, s_max, color='orange', alpha=0.1, label='Search Region')
-                
                 self.update_bg_candidates_dropdown()
 
-            # --- Deriv Logic ---
             elif mode == "Deriv":
                 s_min = float(self.bg_single_min.get())
                 s_max = float(self.bg_single_max.get())
                 cands, xs, ys = self._find_candidates(s_min, s_max, y_data)
                 self.bg_candidates = cands
                 self.bg_context.update({'x_smooth': xs, 'y_smooth': ys})
-                
                 if xs is not None:
                     self.ax.plot(xs, ys, color='orange', linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
                 self.ax.axvspan(s_min, s_max, color='orange', alpha=0.1, label='Search Region')
-                
                 self.update_bg_candidates_dropdown()
 
             self.ax.legend(); self.canvas.draw()
@@ -701,7 +790,6 @@ class BaSALA_App(ctk.CTk):
             vals.append(f"{i+1}. Eg={gap:.3f} eV")
         self.combo_bg_candidates.configure(values=vals)
         self.combo_bg_candidates.set(vals[1] if len(vals)>1 else vals[0])
-        
         if self.bg_candidates:
             bx, by, _ = self.bg_candidates[0]
             self.draw_bg_result(bx, by, abs(bx - peak_x), "Selected Onset")
@@ -713,13 +801,10 @@ class BaSALA_App(ctk.CTk):
             idx = int(choice.split(".")[0]) - 1
             cx, cy, _ = self.bg_candidates[idx]
             self.plot_base_graph()
-            
-            # Redraw context
             pk_x = self.bg_context['peak_x']
             pk_y = self.bg_context['peak_y']
             popt_g = self.bg_context['popt_g']
             pk_r = self.bg_context['pk_r']
-            
             if popt_g is not None:
                 xf = np.linspace(pk_r[0], pk_r[1], 100)
                 self.ax.plot(xf, gaussian_func(xf, *popt_g), 'lime', linestyle='--', linewidth=1.5)
@@ -733,7 +818,6 @@ class BaSALA_App(ctk.CTk):
                 self.ax.plot(xp, linear_func(xp, *self.bg_context['popt_sl']), 'r--', alpha=0.3)
                 self.ax.axvspan(self.bg_context['bg_r'][0], self.bg_context['bg_r'][1], color='blue', alpha=0.1)
                 self.ax.axvspan(self.bg_context['sl_r'][0], self.bg_context['sl_r'][1], color='red', alpha=0.1)
-            
             if 'x_smooth' in self.bg_context:
                 self.ax.plot(self.bg_context['x_smooth'], self.bg_context['y_smooth'], color='orange', linestyle=':', linewidth=2, alpha=0.8)
             
