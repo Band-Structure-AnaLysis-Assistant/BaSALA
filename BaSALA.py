@@ -49,30 +49,58 @@ def gaussian_func(x, a, mu, sigma, c):
 
 def calculate_shirley_bg(x, y, tol=1e-5, max_iters=50):
     """
-    Shirley法によるバックグラウンド（BG）計算関数
+    Iterative Shirley法によるバックグラウンド計算
     """
+    # 1. データをX軸（結合エネルギー等）の昇順にソート（積分方向を一定にするため）
     sorted_indices = np.argsort(x)
     x_sorted = x[sorted_indices]
     y_sorted = y[sorted_indices]
+    
     n = len(y)
-    I_start = y_sorted[0]
-    I_end = y_sorted[-1]
+    
+    # 2. 端点の定義（ノイズ対策で平均を取る）
+    # ※ 低エネルギー側(Start)と高エネルギー側(End)のそれぞれ5点
+    I_start = np.mean(y_sorted[:5])
+    I_end = np.mean(y_sorted[-5:])
+    
+    # 3. BGの初期値（最初は定数または直線で近似）
     bg = np.full(n, I_start)
+
+    # 4. 反復計算 (Proctor & Sherwood 1982)
     for _ in range(max_iters):
-        signal = y_sorted - I_start
+        # 【重要】現在の推定BGを引いて、ピーク部分(signal)だけを取り出す
+        signal = y_sorted - bg
+        
+        # マイナスになった部分はノイズ等のため0にする
         signal[signal < 0] = 0
+        
+        # 累積積分 (台形則)
         cum_area = np.zeros(n)
+        # x_sortedは昇順なので np.diff は正の値になる
         cum_area[1:] = np.cumsum((signal[:-1] + signal[1:]) / 2 * np.diff(x_sorted))
+        
         total_area = cum_area[-1]
-        if total_area == 0: k = 0
-        else: k = (I_end - I_start) / total_area
+        
+        # ゼロ除算回避
+        if total_area == 0:
+            k = 0
+        else:
+            # 面積比に応じて段差(I_end - I_start)を分配する
+            k = (I_end - I_start) / total_area
+            
         bg_new = I_start + k * cum_area
+        
+        # 収束判定
         if np.max(np.abs(bg_new - bg)) < tol:
             bg = bg_new
             break
+            
         bg = bg_new
+        
+    # 5. 元の並び順に戻す
     bg_original_order = np.zeros(n)
     bg_original_order[sorted_indices] = bg
+    
     return bg_original_order
 
 # ==========================================
@@ -377,22 +405,17 @@ class BaSALA_App(ctk.CTk):
 
     def plot_base_graph(self):
         """グラフの基本描画（生データ or 補正データ）"""
-        if self.energy is None: return
         self.ax.clear()
-        
-        # 生データのプロット
-        self.ax.plot(self.energy, self.intensity, color='cyan', label='Raw Data', alpha=0.6, linewidth=1)
-        
-        # Shirley補正データのプロット
         if self.chk_shirley_var.get() and self.intensity_corrected is not None:
-            self.ax.plot(self.energy, self.intensity_corrected, color='white', label='Shirley Corrected', linewidth=1.5)
-            if self.bg_data is not None:
-                self.ax.plot(self.energy, self.bg_data, color='gray', linestyle='--', alpha=0.5, label='Background')
-
+            self.ax.plot(self.energy, self.intensity, color='gray', alpha=0.3, label='Raw Data')
+            self.ax.plot(self.energy, self.bg_data, color='gray', linestyle='--', alpha=0.5, label='Shirley BG')
+            self.ax.plot(self.energy, self.intensity_corrected, color='#4a90e2', linewidth=1.5, label='Corrected')
+        else:
+            self.ax.plot(self.energy, self.intensity, color='#4a90e2', linewidth=1.5, label='Raw Spectrum')
+        self.ax.legend(); self.ax.grid(True); self.ax.invert_xaxis()
+        self.auto_scale_y()
         self.ax.set_xlabel("Binding Energy (eV)")
         self.ax.set_ylabel("Intensity (a.u.)")
-        self.ax.invert_xaxis()
-        self.ax.legend()
         self.canvas.draw()
 
     def auto_scale_y(self):
@@ -410,7 +433,7 @@ class BaSALA_App(ctk.CTk):
                 self.toolbar.zoom()
             elif 'pan' in self.toolbar.mode:
                 self.toolbar.pan()
-                
+
         self.selection_mode = mode
         if self.span: self.span.set_visible(False); self.span = None
         
