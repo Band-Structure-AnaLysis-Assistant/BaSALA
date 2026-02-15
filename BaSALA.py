@@ -115,8 +115,9 @@ class DataSelectionDialog(ctk.CTkToplevel):
             energy = pd.to_numeric(df.iloc[:, 0], errors='coerce').values
             intensity = pd.to_numeric(df[file_col], errors='coerce').values
             
-            # ★ 変更: NaNを除去し、かつ「Energy=0 かつ Intensity=0」のデータも除外
-            mask = ~np.isnan(energy) & ~np.isnan(intensity) & ~((energy == 0) & (intensity == 0))
+            # NaNを除去し、かつ「EnergyとIntensityが両方0」ではないデータを残す
+            # (~を使わず記述して警告を回避)
+            mask = np.isfinite(energy) & np.isfinite(intensity) & ((energy != 0) | (intensity != 0))
             energy = energy[mask]
             intensity = intensity[mask]
             
@@ -503,8 +504,8 @@ class BaSALA_App(ctk.CTk):
         energy = pd.to_numeric(df.iloc[:, 0], errors='coerce').values
         intensity = pd.to_numeric(df.iloc[:, 1], errors='coerce').values
         
-        # ★ 変更: NaNを除去し、かつ「Energy=0 かつ Intensity=0」のデータも除外
-        mask = ~np.isnan(energy) & ~np.isnan(intensity) & ~((energy == 0) & (intensity == 0))
+        # NaNを除去し、かつ「EnergyとIntensityが両方0」ではないデータを残す
+        mask = np.isfinite(energy) & np.isfinite(intensity) & ((energy != 0) | (intensity != 0))
         energy = energy[mask]
         intensity = intensity[mask]
         
