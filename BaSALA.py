@@ -229,69 +229,13 @@ class BaSALA_App(ctk.CTk):
         self.tabview = ctk.CTkTabview(self.sidebar, width=260)
         self.tabview.pack(padx=10, pady=10, fill="both", expand=True)
         
-        self.tab_vbm = self.tabview.add("VBM")
         self.tab_bg = self.tabview.add("Band Gap")
-        
-        self._init_vbm_tab()
+        self.tab_vbm = self.tabview.add("VBM")
+        self.tab_ups = self.tabview.add("UPS")
+
         self._init_bandgap_tab()
-
-    def _init_vbm_tab(self):
-        frame = ctk.CTkFrame(self.tab_vbm, fg_color="transparent")
-        frame.pack(fill="both", expand=True)
-        
-        self.vbm_mode_var = ctk.StringVar(value="Linear")
-        self.seg_vbm_mode = ctk.CTkSegmentedButton(frame, values=["Linear", "Deriv", "Hybrid"], variable=self.vbm_mode_var, command=self.update_vbm_ui)
-        self.seg_vbm_mode.pack(pady=10, padx=5, fill="x")
-        self.seg_vbm_mode.set("Linear")
-        
-        ctk.CTkLabel(frame, text="Determine VBM / Onset", font=("Roboto", 12, "bold")).pack(pady=5)
-
-        self.vbm_input_container = ctk.CTkFrame(frame, fg_color="transparent")
-        self.vbm_input_container.pack(fill="x", pady=5)
-
-        self.frame_vbm_linear = ctk.CTkFrame(self.vbm_input_container, fg_color="transparent")
-        ctk.CTkLabel(self.frame_vbm_linear, text="1. Base Range (Flat):", font=("Roboto", 11)).pack(anchor="w", padx=2)
-        bg_frame = ctk.CTkFrame(self.frame_vbm_linear, fg_color="transparent"); bg_frame.pack(fill="x", padx=2)
-        self.entry_vbm_base_min = ctk.CTkEntry(bg_frame, width=65); self.entry_vbm_base_min.pack(side="left")
-        ctk.CTkLabel(bg_frame, text="-").pack(side="left", padx=2)
-        self.entry_vbm_base_max = ctk.CTkEntry(bg_frame, width=65); self.entry_vbm_base_max.pack(side="left")
-        ctk.CTkButton(bg_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("vbm_base")).pack(side="right")
-
-        ctk.CTkLabel(self.frame_vbm_linear, text="2. Slope Range (Edge):", font=("Roboto", 11)).pack(anchor="w", padx=2, pady=(10,0))
-        slope_frame = ctk.CTkFrame(self.frame_vbm_linear, fg_color="transparent"); slope_frame.pack(fill="x", padx=2)
-        self.entry_vbm_slope_min = ctk.CTkEntry(slope_frame, width=65); self.entry_vbm_slope_min.pack(side="left")
-        ctk.CTkLabel(slope_frame, text="-").pack(side="left", padx=2)
-        self.entry_vbm_slope_max = ctk.CTkEntry(slope_frame, width=65); self.entry_vbm_slope_max.pack(side="left")
-        ctk.CTkButton(slope_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("vbm_slope")).pack(side="right")
-
-        self.frame_vbm_single = ctk.CTkFrame(self.vbm_input_container, fg_color="transparent")
-        ctk.CTkLabel(self.frame_vbm_single, text="1. Search Region:", font=("Roboto", 11)).pack(anchor="w", padx=2, pady=(5,0))
-        ctk.CTkLabel(self.frame_vbm_single, text="(Cover Background & Edge)", font=("Roboto", 10), text_color="gray").pack(anchor="w", padx=2)
-        d_frame = ctk.CTkFrame(self.frame_vbm_single, fg_color="transparent"); d_frame.pack(fill="x", padx=2)
-        self.entry_vbm_single_min = ctk.CTkEntry(d_frame, width=65); self.entry_vbm_single_min.pack(side="left")
-        ctk.CTkLabel(d_frame, text="-").pack(side="left", padx=2)
-        self.entry_vbm_single_max = ctk.CTkEntry(d_frame, width=65); self.entry_vbm_single_max.pack(side="left")
-        ctk.CTkButton(d_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("vbm_single")).pack(side="right")
-
-        self.frame_vbm_linear.pack(fill="x", pady=5)
-
-        self.btn_reset_mode_vbm = ctk.CTkButton(frame, text="Stop Selection", fg_color="transparent", border_width=1, height=24, command=self.deactivate_selector)
-        self.btn_reset_mode_vbm.pack(pady=10)
-        
-        self.calc_vbm_btn = ctk.CTkButton(frame, text="Calculate VBM", command=self.calculate_vbm, fg_color="#2d8d2d", state="disabled")
-        self.calc_vbm_btn.pack(padx=5, pady=15, fill="x")
-        
-        self.frame_vbm_res_container = ctk.CTkFrame(frame, fg_color="transparent")
-        self.frame_vbm_res_container.pack(pady=5, fill="x")
-        self.vbm_label = ctk.CTkLabel(self.frame_vbm_res_container, text="VBM: --- eV", font=ctk.CTkFont(size=18, weight="bold"), text_color="#4db6ac")
-        self.vbm_label.pack()
-
-        self.frame_vbm_cand_container = ctk.CTkFrame(frame, fg_color="transparent")
-        self.frame_vbm_cand_container.pack(pady=5, fill="x")
-        self.combo_vbm_candidates = ctk.CTkComboBox(self.frame_vbm_cand_container, width=240, values=["Candidates (Curvature Order)"], command=self.on_vbm_candidate_selected)
-        self.combo_vbm_candidates.set("Candidates (Curvature Order)")
-        
-        self.update_vbm_ui("Linear")
+        self._init_vbm_tab()
+        self._init_ups_tab()
 
     def _init_bandgap_tab(self):
         frame = ctk.CTkFrame(self.tab_bg, fg_color="transparent")
@@ -354,17 +298,144 @@ class BaSALA_App(ctk.CTk):
         
         self.update_bg_ui("Linear")
 
-    def update_vbm_ui(self, value):
-        if value in ["Linear", "Hybrid"]:
-            self.frame_vbm_single.pack_forget()
-            self.frame_vbm_linear.pack(fill="x", pady=5)
-        else:
-            self.frame_vbm_linear.pack_forget()
-            self.frame_vbm_single.pack(fill="x", pady=5)
-        if value == "Linear":
-            self.combo_vbm_candidates.pack_forget()
-        else:
-            self.combo_vbm_candidates.pack()
+    def _init_vbm_tab(self):
+        frame = ctk.CTkFrame(self.tab_vbm, fg_color="transparent")
+        frame.pack(fill="both", expand=True)
+        
+        self.vbm_mode_var = ctk.StringVar(value="Linear")
+        self.seg_vbm_mode = ctk.CTkSegmentedButton(frame, values=["Linear", "Deriv", "Hybrid"], variable=self.vbm_mode_var, command=self.update_vbm_ui)
+        self.seg_vbm_mode.pack(pady=10, padx=5, fill="x")
+        self.seg_vbm_mode.set("Linear")
+        
+        ctk.CTkLabel(frame, text="Determine VBM / Onset", font=("Roboto", 12, "bold")).pack(pady=5)
+
+        self.vbm_input_container = ctk.CTkFrame(frame, fg_color="transparent")
+        self.vbm_input_container.pack(fill="x", pady=5)
+
+        self.frame_vbm_linear = ctk.CTkFrame(self.vbm_input_container, fg_color="transparent")
+        ctk.CTkLabel(self.frame_vbm_linear, text="1. Base Range (Flat):", font=("Roboto", 11)).pack(anchor="w", padx=2)
+        bg_frame = ctk.CTkFrame(self.frame_vbm_linear, fg_color="transparent"); bg_frame.pack(fill="x", padx=2)
+        self.entry_vbm_base_min = ctk.CTkEntry(bg_frame, width=65); self.entry_vbm_base_min.pack(side="left")
+        ctk.CTkLabel(bg_frame, text="-").pack(side="left", padx=2)
+        self.entry_vbm_base_max = ctk.CTkEntry(bg_frame, width=65); self.entry_vbm_base_max.pack(side="left")
+        ctk.CTkButton(bg_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("vbm_base")).pack(side="right")
+
+        ctk.CTkLabel(self.frame_vbm_linear, text="2. Slope Range (Edge):", font=("Roboto", 11)).pack(anchor="w", padx=2, pady=(10,0))
+        slope_frame = ctk.CTkFrame(self.frame_vbm_linear, fg_color="transparent"); slope_frame.pack(fill="x", padx=2)
+        self.entry_vbm_slope_min = ctk.CTkEntry(slope_frame, width=65); self.entry_vbm_slope_min.pack(side="left")
+        ctk.CTkLabel(slope_frame, text="-").pack(side="left", padx=2)
+        self.entry_vbm_slope_max = ctk.CTkEntry(slope_frame, width=65); self.entry_vbm_slope_max.pack(side="left")
+        ctk.CTkButton(slope_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("vbm_slope")).pack(side="right")
+
+        self.frame_vbm_single = ctk.CTkFrame(self.vbm_input_container, fg_color="transparent")
+        ctk.CTkLabel(self.frame_vbm_single, text="1. Search Region:", font=("Roboto", 11)).pack(anchor="w", padx=2, pady=(5,0))
+        ctk.CTkLabel(self.frame_vbm_single, text="(Cover Background & Edge)", font=("Roboto", 10), text_color="gray").pack(anchor="w", padx=2)
+        d_frame = ctk.CTkFrame(self.frame_vbm_single, fg_color="transparent"); d_frame.pack(fill="x", padx=2)
+        self.entry_vbm_single_min = ctk.CTkEntry(d_frame, width=65); self.entry_vbm_single_min.pack(side="left")
+        ctk.CTkLabel(d_frame, text="-").pack(side="left", padx=2)
+        self.entry_vbm_single_max = ctk.CTkEntry(d_frame, width=65); self.entry_vbm_single_max.pack(side="left")
+        ctk.CTkButton(d_frame, text="Select", width=50, fg_color="gray", command=lambda: self.activate_selector("vbm_single")).pack(side="right")
+
+        self.frame_vbm_linear.pack(fill="x", pady=5)
+
+        self.btn_reset_mode_vbm = ctk.CTkButton(frame, text="Stop Selection", fg_color="transparent", border_width=1, height=24, command=self.deactivate_selector)
+        self.btn_reset_mode_vbm.pack(pady=10)
+        
+        self.calc_vbm_btn = ctk.CTkButton(frame, text="Calculate VBM", command=self.calculate_vbm, fg_color="#2d8d2d", state="disabled")
+        self.calc_vbm_btn.pack(padx=5, pady=15, fill="x")
+        
+        self.frame_vbm_res_container = ctk.CTkFrame(frame, fg_color="transparent")
+        self.frame_vbm_res_container.pack(pady=5, fill="x")
+        self.vbm_label = ctk.CTkLabel(self.frame_vbm_res_container, text="VBM: --- eV", font=ctk.CTkFont(size=18, weight="bold"), text_color="#4db6ac")
+        self.vbm_label.pack()
+
+        self.frame_vbm_cand_container = ctk.CTkFrame(frame, fg_color="transparent")
+        self.frame_vbm_cand_container.pack(pady=5, fill="x")
+        self.combo_vbm_candidates = ctk.CTkComboBox(self.frame_vbm_cand_container, width=240, values=["Candidates (Curvature Order)"], command=self.on_vbm_candidate_selected)
+        self.combo_vbm_candidates.set("Candidates (Curvature Order)")
+        
+        self.update_vbm_ui("Linear")
+
+    def _init_ups_tab(self):
+        """UPS (Ultraviolet Photoelectron Spectroscopy) Tab UI"""
+        frame = ctk.CTkFrame(self.tab_ups, fg_color="transparent")
+        frame.pack(fill="both", expand=True)
+
+        # --- A. Photon Energy Setting ---
+        # UPSでは入射光エネルギー(He I = 21.22eVなど)が計算に必須です
+        param_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        param_frame.pack(fill="x", pady=(5, 10))
+        ctk.CTkLabel(param_frame, text="Photon Energy (eV):", font=("Roboto", 12)).pack(side="left", padx=2)
+        self.entry_ups_hv = ctk.CTkEntry(param_frame, width=70)
+        self.entry_ups_hv.pack(side="right", padx=5)
+        self.entry_ups_hv.insert(0, "21.22") # Default: He I
+
+        # --- B. Secondary Electron Cutoff (SE Cutoff) ---
+        # 仕事関数を出すために、高Binding Energy側の立ち上がり(Cutoff)を解析します
+        ctk.CTkLabel(frame, text="1. SE Cutoff (High BE):", font=("Roboto", 12, "bold"), text_color="#ffa726").pack(anchor="w", pady=(5, 0))
+        
+        self.frame_ups_cutoff = ctk.CTkFrame(frame, fg_color="transparent")
+        self.frame_ups_cutoff.pack(fill="x", pady=2)
+
+        # Cutoff - Base (Flat part)
+        ctk.CTkLabel(self.frame_ups_cutoff, text="Base Range:", font=("Roboto", 11)).pack(anchor="w", padx=2)
+        c_bg_frame = ctk.CTkFrame(self.frame_ups_cutoff, fg_color="transparent")
+        c_bg_frame.pack(fill="x", padx=2)
+        self.entry_ups_cutoff_base_min = ctk.CTkEntry(c_bg_frame, width=60); self.entry_ups_cutoff_base_min.pack(side="left")
+        ctk.CTkLabel(c_bg_frame, text="-").pack(side="left", padx=2)
+        self.entry_ups_cutoff_base_max = ctk.CTkEntry(c_bg_frame, width=60); self.entry_ups_cutoff_base_max.pack(side="left")
+        ctk.CTkButton(c_bg_frame, text="Sel", width=40, fg_color="gray", command=lambda: self.activate_selector("ups_cutoff_base")).pack(side="right")
+
+        # Cutoff - Slope (Rising edge)
+        ctk.CTkLabel(self.frame_ups_cutoff, text="Slope Range:", font=("Roboto", 11)).pack(anchor="w", padx=2, pady=(2,0))
+        c_sl_frame = ctk.CTkFrame(self.frame_ups_cutoff, fg_color="transparent")
+        c_sl_frame.pack(fill="x", padx=2)
+        self.entry_ups_cutoff_slope_min = ctk.CTkEntry(c_sl_frame, width=60); self.entry_ups_cutoff_slope_min.pack(side="left")
+        ctk.CTkLabel(c_sl_frame, text="-").pack(side="left", padx=2)
+        self.entry_ups_cutoff_slope_max = ctk.CTkEntry(c_sl_frame, width=60); self.entry_ups_cutoff_slope_max.pack(side="left")
+        ctk.CTkButton(c_sl_frame, text="Sel", width=40, fg_color="gray", command=lambda: self.activate_selector("ups_cutoff_slope")).pack(side="right")
+
+        # --- C. Fermi Edge / HOMO ---
+        # IPを出すために、低Binding Energy側の立ち上がり(Fermi/HOMO)を解析します
+        ctk.CTkLabel(frame, text="2. Fermi / HOMO (Low BE):", font=("Roboto", 12, "bold"), text_color="#4db6ac").pack(anchor="w", pady=(15, 0))
+        
+        self.frame_ups_fermi = ctk.CTkFrame(frame, fg_color="transparent")
+        self.frame_ups_fermi.pack(fill="x", pady=2)
+
+        # Fermi - Base
+        ctk.CTkLabel(self.frame_ups_fermi, text="Base Range:", font=("Roboto", 11)).pack(anchor="w", padx=2)
+        f_bg_frame = ctk.CTkFrame(self.frame_ups_fermi, fg_color="transparent")
+        f_bg_frame.pack(fill="x", padx=2)
+        self.entry_ups_fermi_base_min = ctk.CTkEntry(f_bg_frame, width=60); self.entry_ups_fermi_base_min.pack(side="left")
+        ctk.CTkLabel(f_bg_frame, text="-").pack(side="left", padx=2)
+        self.entry_ups_fermi_base_max = ctk.CTkEntry(f_bg_frame, width=60); self.entry_ups_fermi_base_max.pack(side="left")
+        ctk.CTkButton(f_bg_frame, text="Sel", width=40, fg_color="gray", command=lambda: self.activate_selector("ups_fermi_base")).pack(side="right")
+
+        # Fermi - Slope
+        ctk.CTkLabel(self.frame_ups_fermi, text="Slope Range:", font=("Roboto", 11)).pack(anchor="w", padx=2, pady=(2,0))
+        f_sl_frame = ctk.CTkFrame(self.frame_ups_fermi, fg_color="transparent")
+        f_sl_frame.pack(fill="x", padx=2)
+        self.entry_ups_fermi_slope_min = ctk.CTkEntry(f_sl_frame, width=60); self.entry_ups_fermi_slope_min.pack(side="left")
+        ctk.CTkLabel(f_sl_frame, text="-").pack(side="left", padx=2)
+        self.entry_ups_fermi_slope_max = ctk.CTkEntry(f_sl_frame, width=60); self.entry_ups_fermi_slope_max.pack(side="left")
+        ctk.CTkButton(f_sl_frame, text="Sel", width=40, fg_color="gray", command=lambda: self.activate_selector("ups_fermi_slope")).pack(side="right")
+
+        # --- D. Actions ---
+        ctk.CTkButton(frame, text="Stop Selection", fg_color="transparent", border_width=1, height=24, command=self.deactivate_selector).pack(pady=10)
+        
+        # まだ計算ロジック(calculate_ups)はないので、commandは一時的にNoneかpass用の関数にしておいてください
+        self.calc_ups_btn = ctk.CTkButton(frame, text="Calculate UPS (WF & IP)", fg_color="#e65100") 
+        self.calc_ups_btn.pack(pady=5, fill="x")
+        
+        # --- E. Results ---
+        self.frame_ups_res = ctk.CTkFrame(frame, fg_color="transparent")
+        self.frame_ups_res.pack(pady=5, fill="x")
+        
+        self.lbl_res_wf = ctk.CTkLabel(self.frame_ups_res, text="WF: --- eV", font=ctk.CTkFont(size=16, weight="bold"))
+        self.lbl_res_wf.pack(anchor="w", padx=10)
+        
+        self.lbl_res_ip = ctk.CTkLabel(self.frame_ups_res, text="IP: --- eV", font=ctk.CTkFont(size=16, weight="bold"))
+        self.lbl_res_ip.pack(anchor="w", padx=10)
 
     def update_bg_ui(self, value):
         if value in ["Linear", "Hybrid"]:
@@ -377,6 +448,19 @@ class BaSALA_App(ctk.CTk):
             self.combo_bg_candidates.pack_forget()
         else:
             self.combo_bg_candidates.pack()
+
+    def update_vbm_ui(self, value):
+        if value in ["Linear", "Hybrid"]:
+            self.frame_vbm_single.pack_forget()
+            self.frame_vbm_linear.pack(fill="x", pady=5)
+        else:
+            self.frame_vbm_linear.pack_forget()
+            self.frame_vbm_single.pack(fill="x", pady=5)
+        if value == "Linear":
+            self.combo_vbm_candidates.pack_forget()
+        else:
+            self.combo_vbm_candidates.pack()
+
 
     def _create_main_area(self):
         self.main_frame = ctk.CTkFrame(self)
@@ -464,7 +548,11 @@ class BaSALA_App(ctk.CTk):
             'bg_peak': (self.bg_peak_min, self.bg_peak_max),
             'bg_base': (self.bg_base_min, self.bg_base_max), 
             'bg_slope': (self.bg_slope_min, self.bg_slope_max),
-            'bg_single': (self.bg_single_min, self.bg_single_max)
+            'bg_single': (self.bg_single_min, self.bg_single_max),
+            'ups_cutoff_base': (self.entry_ups_cutoff_base_min, self.entry_ups_cutoff_base_max),
+            'ups_cutoff_slope': (self.entry_ups_cutoff_slope_min, self.entry_ups_cutoff_slope_max),
+            'ups_fermi_base': (self.entry_ups_fermi_base_min, self.entry_ups_fermi_base_max),
+            'ups_fermi_slope': (self.entry_ups_fermi_slope_min, self.entry_ups_fermi_slope_max)
         }
         
         if self.selection_mode in entries:
