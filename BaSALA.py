@@ -396,7 +396,7 @@ class BaSALA_App(ctk.CTk):
             self.ax.plot(self.energy, self.intensity_corrected, color=AppConfig.COLOR_CORRECTED, linewidth=1.5, label='Corrected')
         else:
             self.ax.plot(self.energy, self.intensity, color=AppConfig.COLOR_RAW, linewidth=1.5, label='Raw Spectrum')
-        self.ax.legend(); self.ax.grid(True); self.ax.invert_xaxis()
+        self.ax.legend(loc='upper left'); self.ax.grid(True); self.ax.invert_xaxis()
         self.auto_scale_y()
         self.ax.set_xlabel("Binding Energy (eV)")
         self.ax.set_ylabel("Intensity (a.u.)")
@@ -641,7 +641,7 @@ class BaSALA_App(ctk.CTk):
                 if xs is not None: self.ax.plot(xs, ys, color='orange', linestyle=':', linewidth=2, alpha=0.8)
                 self.update_bg_candidates_dropdown()
 
-            self.ax.legend(); self.canvas.draw()
+            self.ax.legend(loc='upper left'); self.canvas.draw()
         except Exception as e: messagebox.showerror("Calc Error", str(e))
 
     def update_bg_candidates_dropdown(self):
@@ -759,7 +759,7 @@ class BaSALA_App(ctk.CTk):
                 if xs is not None: self.ax.plot(xs, ys, color='orange', linestyle=':', linewidth=2, alpha=0.8)
                 self.update_vbm_candidates_dropdown()
 
-            self.ax.legend(); self.canvas.draw()
+            self.ax.legend(loc='upper left'); self.canvas.draw()
         except Exception as e: messagebox.showerror("Calc Error", str(e))
 
     def update_vbm_candidates_dropdown(self):
