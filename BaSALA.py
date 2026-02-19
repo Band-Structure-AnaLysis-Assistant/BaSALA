@@ -416,6 +416,19 @@ class BaSALA_App(ctk.CTk):
             if 'zoom' in self.toolbar.mode: self.toolbar.zoom()
             elif 'pan' in self.toolbar.mode: self.toolbar.pan()
 
+        # --- 今回追加：計算結果(Search Region等)を消去してベースグラフに戻す ---
+        # 1. 現在のズーム状態（表示範囲）を保存
+        current_xlim = self.ax.get_xlim()
+        current_ylim = self.ax.get_ylim()
+
+        # 2. グラフをベース状態（生データのみ）にリセット
+        self.plot_base_graph()
+
+        # 3. ズーム状態を復元（これをしないとSelectを押すたびに全画面に戻ってしまう）
+        self.ax.set_xlim(current_xlim)
+        self.ax.set_ylim(current_ylim)
+        # -------------------------------------------------------------------------
+
         self.selection_mode = mode
         if self.span: self.span.set_visible(False); self.span = None
         
@@ -625,8 +638,8 @@ class BaSALA_App(ctk.CTk):
                     lin_onset_x, _, popt_bg, popt_sl = self._fit_and_intersect(y_data, bg_r, sl_r)
                     self.bg_context.update({'popt_bg': popt_bg, 'popt_sl': popt_sl, 'bg_r': bg_r, 'sl_r': sl_r})
                     xp = np.linspace(min(self.energy), max(self.energy), 200)
-                    self.ax.plot(xp, linear_func(xp, *popt_bg), color=AppConfig.COLOR_FIT_BASE, linestyle='--', alpha=0.3)
-                    self.ax.plot(xp, linear_func(xp, *popt_sl), color=AppConfig.COLOR_FIT_SLOPE, linestyle='--', alpha=0.3)
+                    self.ax.plot(xp, linear_func(xp, *popt_bg), color=AppConfig.COLOR_FIT_BASE, linestyle='--', alpha=0.3, label='Base Fit')
+                    self.ax.plot(xp, linear_func(xp, *popt_sl), color=AppConfig.COLOR_FIT_SLOPE, linestyle='--', alpha=0.3, label='Slope Fit')
                     self.ax.axvspan(bg_r[0], bg_r[1], color='blue', alpha=0.1)
                     self.ax.axvspan(sl_r[0], sl_r[1], color='red', alpha=0.1)
                     s_min, s_max = lin_onset_x - 1.5, lin_onset_x + 1.5
@@ -638,7 +651,7 @@ class BaSALA_App(ctk.CTk):
                 self.bg_candidates = cands
                 self.bg_context.update({'x_smooth': xs, 'y_smooth': ys})
                 self.ax.axvspan(s_min, s_max, color='orange', alpha=0.1, label='Search Region')
-                if xs is not None: self.ax.plot(xs, ys, color='orange', linestyle=':', linewidth=2, alpha=0.8)
+                if xs is not None: self.ax.plot(xs, ys, color='orange', linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
                 self.update_bg_candidates_dropdown()
 
             self.ax.legend(loc='upper left'); self.canvas.draw()
@@ -743,8 +756,8 @@ class BaSALA_App(ctk.CTk):
                     linear_vbm_x, _, popt_bg, popt_sl = self._fit_and_intersect(y_data, bg_r, sl_r)
                     self.vbm_context.update({'popt_bg': popt_bg, 'popt_sl': popt_sl, 'bg_r': bg_r, 'sl_r': sl_r})
                     xp = np.linspace(min(self.energy), max(self.energy), 200)
-                    self.ax.plot(xp, linear_func(xp, *popt_bg), color=AppConfig.COLOR_FIT_BASE, linestyle='--', alpha=0.3)
-                    self.ax.plot(xp, linear_func(xp, *popt_sl), color=AppConfig.COLOR_FIT_SLOPE, linestyle='--', alpha=0.3)
+                    self.ax.plot(xp, linear_func(xp, *popt_bg), color=AppConfig.COLOR_FIT_BASE, linestyle='--', alpha=0.3, label='Base Fit')
+                    self.ax.plot(xp, linear_func(xp, *popt_sl), color=AppConfig.COLOR_FIT_SLOPE, linestyle='--', alpha=0.3, label='Slope Fit')
                     self.ax.axvspan(bg_r[0], bg_r[1], color='blue', alpha=0.1)
                     self.ax.axvspan(sl_r[0], sl_r[1], color='red', alpha=0.1)
                     search_min, search_max = linear_vbm_x - 1.5, linear_vbm_x + 1.5
@@ -756,7 +769,7 @@ class BaSALA_App(ctk.CTk):
                 self.vbm_candidates = cands
                 self.vbm_context.update({'x_smooth': xs, 'y_smooth': ys})
                 self.ax.axvspan(search_min, search_max, color='orange', alpha=0.1, label='Search Region')
-                if xs is not None: self.ax.plot(xs, ys, color='orange', linestyle=':', linewidth=2, alpha=0.8)
+                if xs is not None: self.ax.plot(xs, ys, color='orange', linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
                 self.update_vbm_candidates_dropdown()
 
             self.ax.legend(loc='upper left'); self.canvas.draw()
