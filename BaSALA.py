@@ -33,7 +33,7 @@ ctk.set_default_color_theme("dark-blue")
 class AppConfig:
     # --- アプリ全体設定 ---
     APP_NAME: str = "BaSALA - Band Structure AnaLysis Assistant"
-    VERSION: str = "v1.0.0"
+    VERSION: str = "v1.1.0"
     WINDOW_SIZE: str = "1280x900"
     SIDEBAR_WIDTH: int = 280
     
