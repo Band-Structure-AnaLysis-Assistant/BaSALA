@@ -1,0 +1,13 @@
+# PyInstaller (exe化ツール) の出力フォルダ
+build/
+dist/
+*.spec
+
+# 実行ファイルや圧縮ファイル
+*.exe
+*.zip
+*.pkg
+
+# Pythonのキャッシュ（自動生成される不要ファイル）
+__pycache__/
+*.pyc
