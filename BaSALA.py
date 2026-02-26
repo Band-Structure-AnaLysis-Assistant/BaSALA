@@ -50,12 +50,14 @@ class AppConfig:
     COLOR_MARKER_BG: str = "blue"   # BandGapマーカー
     COLOR_MARKER_MAIN_PEAK: str = "green" # BandGap Main Peak
     
-    # 選択範囲の塗りつぶし色マップ
+    # 選択範囲の塗りつぶし色マップ（LEIPSとLEETを追加）
     SELECTOR_COLORS = {
         'vbm_base': 'blue', 'vbm_slope': 'red', 'vbm_single': 'orange',
         'bg_peak': 'green', 'bg_base': 'blue', 'bg_slope': 'red', 'bg_single': 'orange',
         'ups_cutoff_base': 'blue', 'ups_cutoff_slope': 'cyan',
-        'ups_fermi_base': 'blue', 'ups_fermi_slope': 'red'
+        'ups_fermi_base': 'blue', 'ups_fermi_slope': 'red',
+        'leips_base': 'blue', 'leips_slope': 'red',  # LEIPS用
+        'leet_base': 'blue', 'leet_slope': 'red'     # LEET用
     }
 
     # --- 解析パラメータのデフォルト値 ---
@@ -71,11 +73,15 @@ class AppConfig:
         'bg_base': (4.0, 5.0),
         'bg_slope': (5.5, 6.5),
         'bg_single': (4.0, 7.0),
-        # UPS用 (例: 仕事関数が大きい側にあるためオフセット大きめ)
         'ups_cutoff_base': (15.0, 16.0), 
         'ups_cutoff_slope': (16.0, 17.0),
         'ups_fermi_base': (-1.0, 0.0),
-        'ups_fermi_slope': (0.0, 1.0)
+        'ups_fermi_slope': (0.0, 1.0),
+        # LEIPS/LEET用（仮のオフセット値。データに合わせて後で調整可能）
+        'leips_base': (0.0, 1.0),
+        'leips_slope': (1.5, 2.5),
+        'leet_base': (0.0, 1.0),
+        'leet_slope': (1.5, 2.5)
     }
 
 # ==========================================
@@ -234,13 +240,19 @@ class BaSALA_App(ctk.CTk):
         self.tabview = ctk.CTkTabview(self.sidebar, width=AppConfig.SIDEBAR_WIDTH - 20)
         self.tabview.pack(padx=10, pady=10, fill="both", expand=True)
         
+        # --- タブの追加（LEIPSとLEETを追加） ---
         self.tab_bg = self.tabview.add("Band Gap")
         self.tab_vbm = self.tabview.add("VBM")
         self.tab_ups = self.tabview.add("UPS")
+        self.tab_leips = self.tabview.add("LEIPS")
+        self.tab_leet = self.tabview.add("LEET")
 
+        # 各タブのUI初期化メソッドを呼び出し
         self._init_bandgap_tab()
         self._init_vbm_tab()
         self._init_ups_tab()
+        self._init_leips_tab()
+        self._init_leet_tab()
 
     def _init_bandgap_tab(self):
         frame = ctk.CTkFrame(self.tab_bg, fg_color="transparent")
@@ -350,6 +362,52 @@ class BaSALA_App(ctk.CTk):
         self.lbl_res_ip = ctk.CTkLabel(self.frame_ups_res, text="IP: --- eV", font=ctk.CTkFont(size=16, weight="bold"))
         self.lbl_res_ip.pack(anchor="center", padx=10)
 
+    # --- 新規追加：LEIPSタブ ---
+    def _init_leips_tab(self):
+        """LEIPSデータからLUMO（伝導帯下端）を直線交点で算出するUI"""
+        frame = ctk.CTkFrame(self.tab_leips, fg_color="transparent")
+        frame.pack(fill="both", expand=True)
+
+        ctk.CTkLabel(frame, text="LUMO Analysis (Linear Intersection):", font=("Roboto", 12, "bold"), text_color="#4db6ac").pack(anchor="w", pady=(5, 0))
+        
+        self.frame_leips = ctk.CTkFrame(frame, fg_color="transparent")
+        self.frame_leips.pack(fill="x", pady=5)
+        
+        self.entry_leips_base_min, self.entry_leips_base_max = self._create_range_selector(self.frame_leips, "1. Base Range (Gap):", "leips_base")
+        self.entry_leips_slope_min, self.entry_leips_slope_max = self._create_range_selector(self.frame_leips, "2. Slope Range (LUMO Edge):", "leips_slope")
+
+        ctk.CTkButton(frame, text="Stop Selection", fg_color="transparent", border_width=1, height=24, command=self.deactivate_selector).pack(pady=10)
+        self.calc_leips_btn = ctk.CTkButton(frame, text="Calculate LUMO", command=self.calculate_leips, fg_color="#2d8d2d", state="disabled")
+        self.calc_leips_btn.pack(pady=5, fill="x")
+        
+        self.frame_leips_res = ctk.CTkFrame(frame, fg_color="transparent")
+        self.frame_leips_res.pack(pady=5, fill="x")
+        self.lbl_res_lumo = ctk.CTkLabel(self.frame_leips_res, text="LUMO: --- eV", font=ctk.CTkFont(size=18, weight="bold"), text_color="#4db6ac")
+        self.lbl_res_lumo.pack()
+
+    # --- 新規追加：LEETタブ ---
+    def _init_leet_tab(self):
+        """LEETデータから真空準位（Vacuum Level）を直線交点で算出するUI"""
+        frame = ctk.CTkFrame(self.tab_leet, fg_color="transparent")
+        frame.pack(fill="both", expand=True)
+
+        ctk.CTkLabel(frame, text="Vacuum Level Analysis:", font=("Roboto", 12, "bold"), text_color="#ffa726").pack(anchor="w", pady=(5, 0))
+        
+        self.frame_leet = ctk.CTkFrame(frame, fg_color="transparent")
+        self.frame_leet.pack(fill="x", pady=5)
+        
+        self.entry_leet_base_min, self.entry_leet_base_max = self._create_range_selector(self.frame_leet, "1. Base Range (Flat):", "leet_base")
+        self.entry_leet_slope_min, self.entry_leet_slope_max = self._create_range_selector(self.frame_leet, "2. Slope Range (Target Current):", "leet_slope")
+
+        ctk.CTkButton(frame, text="Stop Selection", fg_color="transparent", border_width=1, height=24, command=self.deactivate_selector).pack(pady=10)
+        self.calc_leet_btn = ctk.CTkButton(frame, text="Calculate Vacuum Level", command=self.calculate_leet, fg_color="#e65100", state="disabled")
+        self.calc_leet_btn.pack(pady=5, fill="x")
+        
+        self.frame_leet_res = ctk.CTkFrame(frame, fg_color="transparent")
+        self.frame_leet_res.pack(pady=5, fill="x")
+        self.lbl_res_vl = ctk.CTkLabel(self.frame_leet_res, text="Vacuum Level: --- eV", font=ctk.CTkFont(size=18, weight="bold"), text_color="#ffa726")
+        self.lbl_res_vl.pack()
+
     def _create_main_area(self):
         self.main_frame = ctk.CTkFrame(self)
         self.main_frame.pack(side="right", fill="both", expand=True, padx=10, pady=10)
@@ -416,18 +474,11 @@ class BaSALA_App(ctk.CTk):
             if 'zoom' in self.toolbar.mode: self.toolbar.zoom()
             elif 'pan' in self.toolbar.mode: self.toolbar.pan()
 
-        # --- 今回追加：計算結果(Search Region等)を消去してベースグラフに戻す ---
-        # 1. 現在のズーム状態（表示範囲）を保存
         current_xlim = self.ax.get_xlim()
         current_ylim = self.ax.get_ylim()
-
-        # 2. グラフをベース状態（生データのみ）にリセット
         self.plot_base_graph()
-
-        # 3. ズーム状態を復元（これをしないとSelectを押すたびに全画面に戻ってしまう）
         self.ax.set_xlim(current_xlim)
         self.ax.set_ylim(current_ylim)
-        # -------------------------------------------------------------------------
 
         self.selection_mode = mode
         if self.span: self.span.set_visible(False); self.span = None
@@ -446,6 +497,7 @@ class BaSALA_App(ctk.CTk):
         min_val, max_val = sorted([vmin, vmax])
         v_min, v_max = f"{min_val:.2f}", f"{max_val:.2f}"
         
+        # --- 選択範囲の登録先を追加（LEIPS / LEET対応） ---
         entries = {
             'vbm_base': (self.entry_vbm_base_min, self.entry_vbm_base_max),
             'vbm_slope': (self.entry_vbm_slope_min, self.entry_vbm_slope_max),
@@ -457,7 +509,11 @@ class BaSALA_App(ctk.CTk):
             'ups_cutoff_base': (self.entry_ups_cutoff_base_min, self.entry_ups_cutoff_base_max),
             'ups_cutoff_slope': (self.entry_ups_cutoff_slope_min, self.entry_ups_cutoff_slope_max),
             'ups_fermi_base': (self.entry_ups_fermi_base_min, self.entry_ups_fermi_base_max),
-            'ups_fermi_slope': (self.entry_ups_fermi_slope_min, self.entry_ups_fermi_slope_max)
+            'ups_fermi_slope': (self.entry_ups_fermi_slope_min, self.entry_ups_fermi_slope_max),
+            'leips_base': (self.entry_leips_base_min, self.entry_leips_base_max),
+            'leips_slope': (self.entry_leips_slope_min, self.entry_leips_slope_max),
+            'leet_base': (self.entry_leet_base_min, self.entry_leet_base_max),
+            'leet_slope': (self.entry_leet_slope_min, self.entry_leet_slope_max)
         }
         
         if self.selection_mode in entries:
@@ -521,7 +577,6 @@ class BaSALA_App(ctk.CTk):
         self.intensity = intensity
         min_e = np.min(self.energy)
         
-        # Helper to set range using AppConfig
         def set_default(e_min, e_max, key):
             off_min, off_max = AppConfig.RANGE_DEFAULTS[key]
             e_min.delete(0, tk.END); e_min.insert(0, f"{min_e + off_min:.1f}")
@@ -536,17 +591,26 @@ class BaSALA_App(ctk.CTk):
         set_default(self.bg_base_min, self.bg_base_max, 'bg_base')
         set_default(self.bg_slope_min, self.bg_slope_max, 'bg_slope')
         set_default(self.bg_single_min, self.bg_single_max, 'bg_single')
-        # UPS (Fixed offset example)
+        # UPS 
         set_default(self.entry_ups_cutoff_base_min, self.entry_ups_cutoff_base_max, 'ups_cutoff_base')
         set_default(self.entry_ups_cutoff_slope_min, self.entry_ups_cutoff_slope_max, 'ups_cutoff_slope')
         set_default(self.entry_ups_fermi_base_min, self.entry_ups_fermi_base_max, 'ups_fermi_base')
         set_default(self.entry_ups_fermi_slope_min, self.entry_ups_fermi_slope_max, 'ups_fermi_slope')
+        # LEIPS & LEET --- 新規追加 ---
+        set_default(self.entry_leips_base_min, self.entry_leips_base_max, 'leips_base')
+        set_default(self.entry_leips_slope_min, self.entry_leips_slope_max, 'leips_slope')
+        set_default(self.entry_leet_base_min, self.entry_leet_base_max, 'leet_base')
+        set_default(self.entry_leet_slope_min, self.entry_leet_slope_max, 'leet_slope')
 
         self.chk_shirley_var.set(False); self.intensity_corrected = None; self.bg_data = None
         self.plot_base_graph()
+        
+        # 全ての計算ボタンを有効化
         self.calc_vbm_btn.configure(state="normal")
         self.calc_bg_btn.configure(state="normal")
         self.calc_ups_btn.configure(state="normal")
+        self.calc_leips_btn.configure(state="normal")
+        self.calc_leet_btn.configure(state="normal")
 
     def _find_candidates(self, search_min, search_max, y_data):
         target_window = 21 
@@ -578,15 +642,12 @@ class BaSALA_App(ctk.CTk):
     # -------------------------------------------------------------------------
     def _fit_and_intersect(self, y_data, range_bg, range_sl):
         """2つの範囲(Background, Slope)で直線フィッティングし、交点を求める"""
-        # Range BG
         mask_bg = (self.energy >= range_bg[0]) & (self.energy <= range_bg[1])
         popt_bg, _ = curve_fit(linear_func, self.energy[mask_bg], y_data[mask_bg])
         
-        # Range Slope
         mask_sl = (self.energy >= range_sl[0]) & (self.energy <= range_sl[1])
         popt_sl, _ = curve_fit(linear_func, self.energy[mask_sl], y_data[mask_sl])
         
-        # Intersection: a1*x + b1 = a2*x + b2  => x = (b2-b1)/(a1-a2)
         x_int = (popt_sl[1] - popt_bg[1]) / (popt_bg[0] - popt_sl[0])
         y_int = linear_func(x_int, *popt_bg)
         
@@ -673,49 +734,33 @@ class BaSALA_App(ctk.CTk):
         try:
             idx = int(choice.split(".")[0]) - 1
             cx, cy, _ = self.bg_candidates[idx]
-            
-            # 1. ベースのグラフ（生データ）を再描画
             self.plot_base_graph()
             
-            # 2. ガウスフィッティング（Main Peak）の再描画
             if self.bg_context.get('popt_g') is not None:
                 pk_r = self.bg_context['pk_r']
                 xf = np.linspace(pk_r[0], pk_r[1], 100)
                 self.ax.plot(xf, gaussian_func(xf, *self.bg_context['popt_g']), 'lime', linestyle='--', linewidth=1.5, label='Gauss Fit')
             
-            # Main Peakマーカー
             self.ax.plot(self.bg_context['peak_x'], self.bg_context['peak_y'], 
                          color=AppConfig.COLOR_MARKER_MAIN_PEAK, marker='*', markersize=15, zorder=5, label='Main Peak')
             self.ax.axvline(self.bg_context['peak_x'], color='green', linestyle=':', alpha=0.6)
             self.ax.axvspan(self.bg_context['pk_r'][0], self.bg_context['pk_r'][1], color='green', alpha=0.1)
 
-            # 3. 線形フィッティング（Linear/Hybrid用）の再描画
             if 'popt_bg' in self.bg_context:
                 xp = np.linspace(min(self.energy), max(self.energy), 200)
-                # ★修正: labelを追加
                 self.ax.plot(xp, linear_func(xp, *self.bg_context['popt_bg']), color=AppConfig.COLOR_FIT_BASE, linestyle='--', alpha=0.5, label='Base Fit')
                 self.ax.plot(xp, linear_func(xp, *self.bg_context['popt_sl']), color=AppConfig.COLOR_FIT_SLOPE, linestyle='--', alpha=0.5, label='Slope Fit')
-                # ★修正: 領域塗りつぶしを追加
                 self.ax.axvspan(self.bg_context['bg_r'][0], self.bg_context['bg_r'][1], color='blue', alpha=0.1)
                 self.ax.axvspan(self.bg_context['sl_r'][0], self.bg_context['sl_r'][1], color='red', alpha=0.1)
             
-            # 4. スムージング曲線と探索範囲（Hybrid/Deriv用）の再描画
             if 'x_smooth' in self.bg_context:
-                # ★修正: Search Regionの塗りつぶしとラベルを復活
-                # Hybridの場合はコンテキストに保存されていないため、ここで簡易計算が必要ですが、
-                # contextに範囲(s_min, s_max)も保存しておくとよりスマートです。
-                # 現状のコードに合わせて x_smooth の範囲から推定して描画します。
                 xs = self.bg_context['x_smooth']
                 self.ax.axvspan(xs[0], xs[-1], color='orange', alpha=0.1, label='Search Region')
                 self.ax.plot(xs, self.bg_context['y_smooth'], color='orange', linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
                 
-            # 5. 新しい候補点の描画
             self.draw_bg_result(cx, cy, abs(cx - self.bg_context['peak_x']), "Selected Onset")
-            
-            self.ax.legend(loc='upper left')
-            self.canvas.draw()
-        except Exception as e:
-            print(f"Error in selection: {e}") # デバッグ用
+            self.ax.legend(loc='upper left'); self.canvas.draw()
+        except Exception as e: print(f"Error in selection: {e}")
 
     def draw_bg_result(self, x, y, gap, label):
         pk_x = self.bg_context['peak_x']; pk_y = self.bg_context['peak_y']
@@ -789,34 +834,23 @@ class BaSALA_App(ctk.CTk):
         try:
             idx = int(choice.split(".")[0]) - 1
             cx, cy, _ = self.vbm_candidates[idx]
-            
-            # 1. ベースグラフ
             self.plot_base_graph()
             
-            # 2. 線形フィッティングの再描画
             if 'popt_bg' in self.vbm_context:
                 xp = np.linspace(min(self.energy), max(self.energy), 200)
-                # ★修正: labelを追加
                 self.ax.plot(xp, linear_func(xp, *self.vbm_context['popt_bg']), color=AppConfig.COLOR_FIT_BASE, linestyle='--', alpha=0.8, label='Base Fit')
                 self.ax.plot(xp, linear_func(xp, *self.vbm_context['popt_sl']), color=AppConfig.COLOR_FIT_SLOPE, linestyle='--', alpha=0.8, label='Slope Fit')
-                # ★修正: 領域塗りつぶしを追加
                 self.ax.axvspan(self.vbm_context['bg_r'][0], self.vbm_context['bg_r'][1], color='blue', alpha=0.1)
                 self.ax.axvspan(self.vbm_context['sl_r'][0], self.vbm_context['sl_r'][1], color='red', alpha=0.1)
             
-            # 3. スムージングと探索範囲の再描画
             if 'x_smooth' in self.vbm_context:
                 xs = self.vbm_context['x_smooth']
-                # ★修正: Search RegionとSmoothedのラベルを追加
                 self.ax.axvspan(xs[0], xs[-1], color='orange', alpha=0.1, label='Search Region')
                 self.ax.plot(xs, self.vbm_context['y_smooth'], color='orange', linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
             
-            # 4. 結果描画
             self.draw_vbm_result(cx, cy, "Selected Onset")
-            
-            self.ax.legend(loc='upper left')
-            self.canvas.draw()
-        except Exception as e:
-            print(f"Error in selection: {e}")
+            self.ax.legend(loc='upper left'); self.canvas.draw()
+        except Exception as e: print(f"Error in selection: {e}")
 
     def draw_vbm_result(self, x, y, label):
         self.ax.plot(x, y, color=AppConfig.COLOR_MARKER_VBM, marker='o', markersize=10, zorder=6, label=label)
@@ -866,6 +900,62 @@ class BaSALA_App(ctk.CTk):
         offset_x = 1.0 if align == "right" else -1.0
         self.ax.annotate(f'{label}\n{x:.2f} eV', xy=(x, y), xytext=(x+offset_x, y), 
                          arrowprops=dict(arrowstyle='->', color=color), color=color, fontweight='bold')
+
+    # --- 新規追加：LEIPS解析ロジック ---
+    def calculate_leips(self):
+        """VBMと同じく2直線の交点からLUMOを求める"""
+        if self.energy is None: return
+        try:
+            y_data = self.get_current_intensity()
+            self.plot_base_graph()
+
+            l_bg = (float(self.entry_leips_base_min.get()), float(self.entry_leips_base_max.get()))
+            l_sl = (float(self.entry_leips_slope_min.get()), float(self.entry_leips_slope_max.get()))
+            
+            lumo_x, lumo_y, popt_bg, popt_sl = self._fit_and_intersect(y_data, l_bg, l_sl)
+            
+            x_plot = np.linspace(min(self.energy), max(self.energy), 200)
+            self.ax.plot(x_plot, linear_func(x_plot, *popt_bg), color=AppConfig.COLOR_FIT_BASE, linestyle='--', alpha=0.8, label='Base Fit')
+            self.ax.plot(x_plot, linear_func(x_plot, *popt_sl), color=AppConfig.COLOR_FIT_SLOPE, linestyle='--', alpha=0.8, label='Slope Fit')
+            self.ax.axvspan(l_bg[0], l_bg[1], color='blue', alpha=0.1)
+            self.ax.axvspan(l_sl[0], l_sl[1], color='red', alpha=0.1)
+            
+            # 結果を描画（色はVBMと区別してシアンにしています）
+            self.ax.plot(lumo_x, lumo_y, color='cyan', marker='o', markersize=10, zorder=6, label="LUMO (Intersection)")
+            self.ax.axvline(lumo_x, color='cyan', linestyle=':', alpha=0.8)
+            self.lbl_res_lumo.configure(text=f"LUMO: {lumo_x:.3f} eV")
+
+            self.ax.legend(loc='upper left')
+            self.canvas.draw()
+        except Exception as e: messagebox.showerror("Calc Error", str(e))
+
+    # --- 新規追加：LEET解析ロジック ---
+    def calculate_leet(self):
+        """ターゲット電流の立ち上がりから真空準位（Vacuum Level）を求める"""
+        if self.energy is None: return
+        try:
+            y_data = self.get_current_intensity()
+            self.plot_base_graph()
+
+            v_bg = (float(self.entry_leet_base_min.get()), float(self.entry_leet_base_max.get()))
+            v_sl = (float(self.entry_leet_slope_min.get()), float(self.entry_leet_slope_max.get()))
+            
+            vl_x, vl_y, popt_bg, popt_sl = self._fit_and_intersect(y_data, v_bg, v_sl)
+            
+            x_plot = np.linspace(min(self.energy), max(self.energy), 200)
+            self.ax.plot(x_plot, linear_func(x_plot, *popt_bg), color=AppConfig.COLOR_FIT_BASE, linestyle='--', alpha=0.8, label='Base Fit')
+            self.ax.plot(x_plot, linear_func(x_plot, *popt_sl), color=AppConfig.COLOR_FIT_SLOPE, linestyle='--', alpha=0.8, label='Slope Fit')
+            self.ax.axvspan(v_bg[0], v_bg[1], color='blue', alpha=0.1)
+            self.ax.axvspan(v_sl[0], v_sl[1], color='red', alpha=0.1)
+            
+            # 結果を描画（オレンジ色で目立たせます）
+            self.ax.plot(vl_x, vl_y, color='orange', marker='D', markersize=10, zorder=6, label="Vacuum Level")
+            self.ax.axvline(vl_x, color='orange', linestyle=':', alpha=0.8)
+            self.lbl_res_vl.configure(text=f"Vacuum Level: {vl_x:.3f} eV")
+
+            self.ax.legend(loc='upper left')
+            self.canvas.draw()
+        except Exception as e: messagebox.showerror("Calc Error", str(e))
 
     def on_closing(self):
         plt.close('all'); self.quit(); self.destroy()
