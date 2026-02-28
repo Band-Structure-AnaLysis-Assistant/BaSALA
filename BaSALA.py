@@ -45,19 +45,21 @@ class AppConfig:
     COLOR_BASE: str = "blue"        # ベースライン (平坦部)
     COLOR_SLOPE: str = "red"        # スロープ (立ち上がり部)
     COLOR_PEAK: str = "green"       # ピーク・探索範囲
+    COLOR_SEARCH: str = "purple"
     COLOR_RESULT: str = "darkorange"# 計算結果 (交点・文字)
     
     # --- UIカラー（Darkテーマに映える明るめの色） ---
     UI_COLOR_BASE: str = "#5DADE2"  # Light Blue
     UI_COLOR_SLOPE: str = "#F1948A" # Light Red
     UI_COLOR_PEAK: str = "#82E0AA"  # Light Green
+    UI_COLOR_SEARCH: str = "#AF7AC5"
     UI_COLOR_RESULT: str = "#F39C12"# Orange
     UI_COLOR_BTN: str = "#1f538d"   # 統一ボタンカラー
     
     # --- 選択範囲の塗りつぶし色マップ ---
     SELECTOR_COLORS = {
-        'vbm_base': 'blue', 'vbm_slope': 'red', 'vbm_single': 'green',
-        'bg_peak': 'green', 'bg_base': 'blue', 'bg_slope': 'red', 'bg_single': 'green',
+        'vbm_base': 'blue', 'vbm_slope': 'red', 'vbm_single': 'purple',
+        'bg_peak': 'green', 'bg_base': 'blue', 'bg_slope': 'red', 'bg_single': 'purple',
         'ups_cutoff_base': 'blue', 'ups_cutoff_slope': 'red',
         'ups_fermi_base': 'blue', 'ups_fermi_slope': 'red',
         'leips_base': 'blue', 'leips_slope': 'red',
@@ -253,7 +255,7 @@ class BaSALA_App(ctk.CTk):
         self.frame_bg_linear.pack(fill="x", pady=5)
 
         self.frame_bg_single = ctk.CTkFrame(self.bg_input_container, fg_color="transparent")
-        self.bg_single_min, self.bg_single_max = self._create_range_selector(self.frame_bg_single, "2. Onset Search Region:", "bg_single", text_color=AppConfig.UI_COLOR_PEAK)
+        self.bg_single_min, self.bg_single_max = self._create_range_selector(self.frame_bg_single, "2. Onset Search Region:", "bg_single", text_color=AppConfig.UI_COLOR_SEARCH)
         
         ctk.CTkButton(frame, text="Stop Selection", fg_color="transparent", border_width=1, height=24, command=self.deactivate_selector).pack(pady=10)
         self.calc_bg_btn = ctk.CTkButton(frame, text="Calculate Band Gap", command=self.calculate_bandgap, fg_color=AppConfig.UI_COLOR_BTN, state="disabled")
@@ -288,7 +290,7 @@ class BaSALA_App(ctk.CTk):
         self.frame_vbm_linear.pack(fill="x", pady=5)
         
         self.frame_vbm_single = ctk.CTkFrame(self.vbm_input_container, fg_color="transparent")
-        self.entry_vbm_single_min, self.entry_vbm_single_max = self._create_range_selector(self.frame_vbm_single, "1. Search Region:", "vbm_single", text_color=AppConfig.UI_COLOR_PEAK)
+        self.entry_vbm_single_min, self.entry_vbm_single_max = self._create_range_selector(self.frame_vbm_single, "1. Search Region:", "vbm_single", text_color=AppConfig.UI_COLOR_SEARCH)
         
         self.btn_reset_mode_vbm = ctk.CTkButton(frame, text="Stop Selection", fg_color="transparent", border_width=1, height=24, command=self.deactivate_selector)
         self.btn_reset_mode_vbm.pack(pady=10)
@@ -513,13 +515,19 @@ class BaSALA_App(ctk.CTk):
         if not file_path: return
         try:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                head_lines = [next(f) for _ in range(50)]
+                # ★修正1：ファイルが50行未満でも StopIteration エラーで落ちないように安全に読み込む
+                head_lines = []
+                for i, line in enumerate(f):
+                    if i >= 50: break
+                    head_lines.append(line)
             is_multipak = any("file#" in line.lower() for line in head_lines)
             if is_multipak: self._load_multipak(file_path)
             else: self._load_normal_csv(file_path)
         except Exception as e: messagebox.showerror("Error", f"Failed to open file: {e}")
 
     def _load_multipak(self, file_path):
+        # ★修正2：ユーザーが選んだ区切り文字（TabやSpace）をMultiPakでも適用する
+        sep = {", (Comma)": ",", "\\t (Tab)": "\t", "Space": r"\s+"}[self.sep_option.get()]
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f: lines = f.readlines()
         data_blocks = {}
         header_indices = [i for i, line in enumerate(lines) if "file#" in line.lower()]
@@ -528,17 +536,21 @@ class BaSALA_App(ctk.CTk):
             if not region_name or region_name == "no area description": region_name = f"Region {i+1}"
             end_idx = max(start_idx, header_indices[i+1]-4) if i < len(header_indices)-1 else len(lines)
             try:
-                df = pd.read_csv(StringIO("".join(lines[start_idx:end_idx])))
+                # ★修正3：on_bad_lines='skip' を追加し、データ以外のノイズ行があっても無視して読み込む
+                df = pd.read_csv(StringIO("".join(lines[start_idx:end_idx])), sep=sep, engine='python', on_bad_lines='skip')
                 original_name = region_name; counter = 2
                 while region_name in data_blocks: region_name = f"{original_name}_{counter}"; counter += 1
                 data_blocks[region_name] = df
-            except: pass
+            except Exception as e: 
+                print(f"MultiPak Parse Error ({region_name}): {e}") # デバッグ用にエラーを出力して次に進む
+                pass
         if not data_blocks: return messagebox.showerror("Error", "Could not parse MultiPak format.")
         DataSelectionDialog(self, data_blocks, self._on_data_loaded)
 
     def _load_normal_csv(self, file_path):
         sep = {", (Comma)": ",", "\\t (Tab)": "\t", "Space": r"\s+"}[self.sep_option.get()]
-        df = pd.read_csv(file_path, sep=sep, header=None, engine='python')
+        # 念のためこちらにも on_bad_lines='skip' を追加
+        df = pd.read_csv(file_path, sep=sep, header=None, engine='python', on_bad_lines='skip')
         if df.shape[1] < 2: return messagebox.showerror("Error", "Invalid data format.")
         energy = pd.to_numeric(df.iloc[:, 0], errors='coerce').values
         intensity = pd.to_numeric(df.iloc[:, 1], errors='coerce').values
@@ -550,7 +562,6 @@ class BaSALA_App(ctk.CTk):
         self.energy = energy
         self.intensity = intensity
         
-        # 読み込み時はすべて空欄（クリア）にする
         def clear_entries(e_min, e_max):
             e_min.delete(0, tk.END)
             e_max.delete(0, tk.END)
@@ -678,8 +689,8 @@ class BaSALA_App(ctk.CTk):
                 cands, xs, ys = self._find_candidates(s_min, s_max, y_data)
                 self.bg_candidates = cands
                 self.bg_context.update({'x_smooth': xs, 'y_smooth': ys})
-                self.ax.axvspan(s_min, s_max, color=AppConfig.COLOR_PEAK, alpha=0.1, label='Search Region')
-                if xs is not None: self.ax.plot(xs, ys, color=AppConfig.COLOR_PEAK, linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
+                self.ax.axvspan(s_min, s_max, color=AppConfig.COLOR_SEARCH, alpha=0.1, label='Search Region')
+                if xs is not None: self.ax.plot(xs, ys, color=AppConfig.COLOR_SEARCH, linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
                 self.update_bg_candidates_dropdown()
 
             self.ax.legend(loc='upper left'); self.canvas.draw()
@@ -722,8 +733,8 @@ class BaSALA_App(ctk.CTk):
             
             if 'x_smooth' in self.bg_context:
                 xs = self.bg_context['x_smooth']
-                self.ax.axvspan(xs[0], xs[-1], color=AppConfig.COLOR_PEAK, alpha=0.1, label='Search Region')
-                self.ax.plot(xs, self.bg_context['y_smooth'], color=AppConfig.COLOR_PEAK, linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
+                self.ax.axvspan(xs[0], xs[-1], color=AppConfig.COLOR_SEARCH, alpha=0.1, label='Search Region')
+                self.ax.plot(xs, self.bg_context['y_smooth'], color=AppConfig.COLOR_SEARCH, linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
                 
             self.draw_bg_result(cx, cy, abs(cx - self.bg_context['peak_x']), "Selected Onset")
             self.ax.legend(loc='upper left'); self.canvas.draw()
@@ -780,8 +791,8 @@ class BaSALA_App(ctk.CTk):
                 cands, xs, ys = self._find_candidates(search_min, search_max, y_data)
                 self.vbm_candidates = cands
                 self.vbm_context.update({'x_smooth': xs, 'y_smooth': ys})
-                self.ax.axvspan(search_min, search_max, color=AppConfig.COLOR_PEAK, alpha=0.1, label='Search Region')
-                if xs is not None: self.ax.plot(xs, ys, color=AppConfig.COLOR_PEAK, linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
+                self.ax.axvspan(search_min, search_max, color=AppConfig.COLOR_SEARCH, alpha=0.1, label='Search Region')
+                if xs is not None: self.ax.plot(xs, ys, color=AppConfig.COLOR_SEARCH, linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
                 self.update_vbm_candidates_dropdown()
 
             self.ax.legend(loc='upper left'); self.canvas.draw()
@@ -812,8 +823,8 @@ class BaSALA_App(ctk.CTk):
             
             if 'x_smooth' in self.vbm_context:
                 xs = self.vbm_context['x_smooth']
-                self.ax.axvspan(xs[0], xs[-1], color=AppConfig.COLOR_PEAK, alpha=0.1, label='Search Region')
-                self.ax.plot(xs, self.vbm_context['y_smooth'], color=AppConfig.COLOR_PEAK, linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
+                self.ax.axvspan(xs[0], xs[-1], color=AppConfig.COLOR_SEARCH, alpha=0.1, label='Search Region')
+                self.ax.plot(xs, self.vbm_context['y_smooth'], color=AppConfig.COLOR_SEARCH, linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
             
             self.draw_vbm_result(cx, cy, "Selected Onset")
             self.ax.legend(loc='upper left'); self.canvas.draw()
