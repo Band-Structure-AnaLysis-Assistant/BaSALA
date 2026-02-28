@@ -34,7 +34,7 @@ ctk.set_default_color_theme("dark-blue")
 class AppConfig:
     # --- アプリ全体設定 ---
     APP_NAME: str = "BaSALA - Band Structure AnaLysis Assistant"
-    VERSION: str = "v1.2.0"
+    VERSION: str = "v1.2.1"
     WINDOW_SIZE: str = "1280x900"
     SIDEBAR_WIDTH: int = 280
     
@@ -183,13 +183,15 @@ class BaSALA_App(ctk.CTk):
         self.vbm_candidates = []; self.vbm_context = {}
         self.bg_candidates = []; self.bg_context = {}
 
-        # 各種解析結果を一時保存するための辞書（ここに数値を記憶させます）
+        # 各種解析結果を一時保存するための辞書
         self.analysis_results = {
             'WF': None, 'IP': None, 'HOMO': None, 'LUMO': None, 'VL': None
         }
 
         self._create_sidebar()
         self._create_main_area()
+
+        self.switch_main_mode("XPS")
 
     # -------------------------------------------------------------------------
     # UI Creation Helpers
@@ -230,27 +232,46 @@ class BaSALA_App(ctk.CTk):
         self.chk_shirley = ctk.CTkCheckBox(self.common_frame, text="Apply Shirley BG", variable=self.chk_shirley_var, command=self.on_shirley_toggle)
         self.chk_shirley.pack(padx=10, pady=10, anchor="w")
 
-        # タブの作成
-        self.tabview = ctk.CTkTabview(self.sidebar, width=AppConfig.SIDEBAR_WIDTH - 20)
-        self.tabview.pack(padx=10, pady=10, fill="both", expand=True)
-        
-        self.tab_bg = self.tabview.add("XPS")
-        self.tab_vbm = self.tabview.add("VBM")
-        self.tab_ups = self.tabview.add("UPS")
-        self.tab_leips = self.tabview.add("LEIPS")
-        self.tab_leet = self.tabview.add("LEET")
-        self.tab_summary = self.tabview.add("Summary")
+        # --- 解析モードのプルダウンセレクター ---
+        ctk.CTkLabel(self.sidebar, text="Analysis Mode:", font=("Roboto", 12, "bold")).pack(pady=(10, 0), padx=10, anchor="w")
+        self.mode_var = ctk.StringVar(value="XPS")
+        self.combo_main_mode = ctk.CTkComboBox(self.sidebar, values=["XPS", "VBM", "UPS", "LEIPS", "LEET", "Summary"], 
+                                               command=self.switch_main_mode, variable=self.mode_var)
+        self.combo_main_mode.pack(padx=10, pady=5, fill="x")
 
-        self._init_bandgap_tab()
+        # --- 切り替わる画面（Frame）を入れるための親コンテナ ---
+        self.content_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        self.content_frame.pack(padx=10, pady=5, fill="both", expand=True)
+
+        # 画面を管理する辞書
+        self.main_frames = {}
+
+        # 各モードごとの透明なFrameを作成
+        for mode in ["XPS", "VBM", "UPS", "LEIPS", "LEET", "Summary"]:
+            self.main_frames[mode] = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+
+        # 各画面の中身を構築
+        self._init_xps_tab()
         self._init_vbm_tab()
         self._init_ups_tab()
         self._init_leips_tab()
         self._init_leet_tab()
         self._init_summary_tab()
 
-    def _init_bandgap_tab(self):
-        frame = ctk.CTkFrame(self.tab_bg, fg_color="transparent")
-        frame.pack(fill="both", expand=True)
+    def switch_main_mode(self, choice):
+        """プルダウンで選ばれた画面を表示し、他を隠す"""
+        # すべての画面を一度隠す
+        for frame in self.main_frames.values():
+            frame.pack_forget()
+        
+        # 選ばれた画面だけを表示する
+        self.main_frames[choice].pack(fill="both", expand=True)
+        
+        # モードを切り替えたら選択ツールをリセットする
+        self.deactivate_selector()
+
+    def _init_xps_tab(self):
+        frame = self.main_frames["XPS"]
 
         self.bg_mode_var = ctk.StringVar(value="Linear")
         self.seg_bg_mode = ctk.CTkSegmentedButton(frame, values=["Linear", "Deriv", "Hybrid"], variable=self.bg_mode_var, command=self.update_bg_ui)
@@ -286,8 +307,7 @@ class BaSALA_App(ctk.CTk):
         self.update_bg_ui("Linear")
 
     def _init_vbm_tab(self):
-        frame = ctk.CTkFrame(self.tab_vbm, fg_color="transparent")
-        frame.pack(fill="both", expand=True)
+        frame = self.main_frames["VBM"]
         
         self.vbm_mode_var = ctk.StringVar(value="Linear")
         self.seg_vbm_mode = ctk.CTkSegmentedButton(frame, values=["Linear", "Deriv", "Hybrid"], variable=self.vbm_mode_var, command=self.update_vbm_ui)
@@ -323,8 +343,7 @@ class BaSALA_App(ctk.CTk):
         self.update_vbm_ui("Linear")
 
     def _init_ups_tab(self):
-        frame = ctk.CTkFrame(self.tab_ups, fg_color="transparent")
-        frame.pack(fill="both", expand=True)
+        frame = self.main_frames["UPS"]
 
         param_frame = ctk.CTkFrame(frame, fg_color="transparent")
         param_frame.pack(fill="x", pady=(5, 10))
@@ -357,8 +376,7 @@ class BaSALA_App(ctk.CTk):
         self.lbl_res_ip.pack(anchor="center", padx=10)
 
     def _init_leips_tab(self):
-        frame = ctk.CTkFrame(self.tab_leips, fg_color="transparent")
-        frame.pack(fill="both", expand=True)
+        frame = self.main_frames["LEIPS"]
 
         ctk.CTkLabel(frame, text="LUMO Analysis (Intersection):", font=("Roboto", 12, "bold")).pack(anchor="w", pady=(5, 0))
         
@@ -378,15 +396,13 @@ class BaSALA_App(ctk.CTk):
         self.lbl_res_lumo.pack()
 
     def _init_leet_tab(self):
-        frame = ctk.CTkFrame(self.tab_leet, fg_color="transparent")
-        frame.pack(fill="both", expand=True)
+        frame = self.main_frames["LEET"]
 
         ctk.CTkLabel(frame, text="Vacuum Level Analysis (Inflection):", font=("Roboto", 12, "bold")).pack(anchor="w", pady=(5, 0))
         
         self.frame_leet = ctk.CTkFrame(frame, fg_color="transparent")
         self.frame_leet.pack(fill="x", pady=5)
         
-        # 1つの探索範囲（Search Region）を選択させるUIに変更
         self.entry_leet_single_min, self.entry_leet_single_max = self._create_range_selector(
             self.frame_leet, "1. Search Region:", "leet_single", text_color=AppConfig.UI_COLOR_SEARCH
         )
@@ -401,9 +417,7 @@ class BaSALA_App(ctk.CTk):
         self.lbl_res_vl.pack()
 
     def _init_summary_tab(self):
-        # 総合結果（バンドギャップ算出など）を表示するタブ
-        frame = ctk.CTkFrame(self.tab_summary, fg_color="transparent")
-        frame.pack(fill="both", expand=True, padx=10, pady=10)
+        frame = self.main_frames["Summary"]
 
         ctk.CTkLabel(frame, text="[ Saved Parameters ]", font=("Roboto", 14, "bold")).pack(anchor="w", pady=(0, 10))
         
@@ -447,7 +461,6 @@ class BaSALA_App(ctk.CTk):
         self.toolbar.update()
 
     def update_bg_ui(self, value):
-        # 解析モードによって入力欄を出し入れする
         if value in ["Linear", "Hybrid"]:
             self.frame_bg_single.pack_forget(); self.frame_bg_linear.pack(fill="x", pady=5)
         else:
@@ -464,7 +477,6 @@ class BaSALA_App(ctk.CTk):
         else: self.combo_vbm_candidates.pack()
 
     def update_summary_ui(self):
-        # 保存された値を読み込んで文字を書き換える
         res = self.analysis_results
         
         if res['WF'] is not None: self.lbl_sum_wf.configure(text=f"Work Function (Φ): {res['WF']:.3f} eV")
@@ -473,8 +485,6 @@ class BaSALA_App(ctk.CTk):
         if res['LUMO'] is not None: self.lbl_sum_lumo.configure(text=f"LUMO Onset (Fermi ref): {res['LUMO']:.3f} eV")
         if res['VL'] is not None: self.lbl_sum_vl.configure(text=f"Vacuum Level (LEET): {res['VL']:.3f} eV")
 
-        # HOMOとLUMOの両方が揃っていたら、Transport Gapを計算して表示する
-        # （フェルミ準位を基準とした時の差分の絶対値をギャップとしています）
         if res['HOMO'] is not None and res['LUMO'] is not None:
             gap = abs(res['LUMO'] - res['HOMO'])
             self.lbl_sum_gap.configure(text=f"Transport Gap (Eg): {gap:.3f} eV")
@@ -482,7 +492,6 @@ class BaSALA_App(ctk.CTk):
             self.lbl_sum_gap.configure(text="Transport Gap (Eg): --- eV")
 
     def clear_summary(self):
-        # 一時保存データをリセットする
         self.analysis_results = {'WF': None, 'IP': None, 'HOMO': None, 'LUMO': None, 'VL': None}
         self.lbl_sum_wf.configure(text="Work Function (Φ): --- eV")
         self.lbl_sum_ip.configure(text="Ionization Potential (IP): --- eV")
@@ -524,7 +533,6 @@ class BaSALA_App(ctk.CTk):
         self.ax.set_ylim(y_min_curr - margin, y_max_raw + margin)
 
     def activate_selector(self, mode):
-        # グラフツールとの競合を防ぐ
         if self.toolbar.mode:
             if 'zoom' in self.toolbar.mode: self.toolbar.zoom()
             elif 'pan' in self.toolbar.mode: self.toolbar.pan()
@@ -544,13 +552,11 @@ class BaSALA_App(ctk.CTk):
         self.canvas.draw()
 
     def deactivate_selector(self):
-        # 範囲選択ツールをオフにする
         if self.span: self.span.set_visible(False); self.span = None
         self.selection_mode = None
         self.canvas.draw()
 
     def on_select(self, vmin, vmax):
-        # グラフ上でドラッグして範囲を選択した時に呼ばれる関数
         min_val, max_val = sorted([vmin, vmax])
         v_min, v_max = f"{min_val:.2f}", f"{max_val:.2f}"
         
@@ -952,7 +958,7 @@ class BaSALA_App(ctk.CTk):
             self.deactivate_selector()
             self.canvas.draw()
             
-            # ★ 結果を一時保存してSummaryタブを更新する
+            # 結果を一時保存してSummaryタブを更新する
             self.analysis_results['WF'] = wf
             self.analysis_results['IP'] = ip
             self.analysis_results['HOMO'] = e_onset
@@ -991,7 +997,7 @@ class BaSALA_App(ctk.CTk):
             self.deactivate_selector()
             self.canvas.draw()
             
-            # ★ 結果を一時保存してSummaryタブを更新する
+            # 結果を一時保存してSummaryタブを更新する
             self.analysis_results['LUMO'] = lumo_x
             self.update_summary_ui()
             
@@ -1036,7 +1042,7 @@ class BaSALA_App(ctk.CTk):
             self.deactivate_selector()
             self.canvas.draw()
             
-            # ★ 結果を一時保存してSummaryタブを更新する
+            # 結果を一時保存してSummaryタブを更新する
             self.analysis_results['VL'] = vl_x
             self.update_summary_ui()
             
