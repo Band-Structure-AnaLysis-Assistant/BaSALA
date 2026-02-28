@@ -44,22 +44,22 @@ class AppConfig:
     
     COLOR_BASE: str = "blue"        # ベースライン (平坦部)
     COLOR_SLOPE: str = "red"        # スロープ (立ち上がり部)
-    COLOR_PEAK: str = "green"       # ピーク・探索範囲
-    COLOR_SEARCH: str = "purple"
+    COLOR_PEAK: str = "green"       # ピーク
+    COLOR_SEARCH: str = "yellow"    # 探索範囲・スムージング線
     COLOR_RESULT: str = "darkorange"# 計算結果 (交点・文字)
     
     # --- UIカラー（Darkテーマに映える明るめの色） ---
     UI_COLOR_BASE: str = "#5DADE2"  # Light Blue
     UI_COLOR_SLOPE: str = "#F1948A" # Light Red
     UI_COLOR_PEAK: str = "#82E0AA"  # Light Green
-    UI_COLOR_SEARCH: str = "#AF7AC5"
+    UI_COLOR_SEARCH: str = "#F1C40F" # 探索範囲用
     UI_COLOR_RESULT: str = "#F39C12"# Orange
     UI_COLOR_BTN: str = "#1f538d"   # 統一ボタンカラー
     
     # --- 選択範囲の塗りつぶし色マップ ---
     SELECTOR_COLORS = {
-        'vbm_base': 'blue', 'vbm_slope': 'red', 'vbm_single': 'purple',
-        'bg_peak': 'green', 'bg_base': 'blue', 'bg_slope': 'red', 'bg_single': 'purple',
+        'vbm_base': 'blue', 'vbm_slope': 'red', 'vbm_single': 'yellow',
+        'bg_peak': 'green', 'bg_base': 'blue', 'bg_slope': 'red', 'bg_single': 'yellow',
         'ups_cutoff_base': 'blue', 'ups_cutoff_slope': 'red',
         'ups_fermi_base': 'blue', 'ups_fermi_slope': 'red',
         'leips_base': 'blue', 'leips_slope': 'red',
@@ -693,7 +693,9 @@ class BaSALA_App(ctk.CTk):
                 if xs is not None: self.ax.plot(xs, ys, color=AppConfig.COLOR_SEARCH, linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
                 self.update_bg_candidates_dropdown()
 
-            self.ax.legend(loc='upper left'); self.canvas.draw()
+            self.ax.legend(loc='upper left')
+            self.deactivate_selector()
+            self.canvas.draw()
         except Exception as e: messagebox.showerror("Calc Error", str(e))
 
     def update_bg_candidates_dropdown(self):
@@ -795,7 +797,9 @@ class BaSALA_App(ctk.CTk):
                 if xs is not None: self.ax.plot(xs, ys, color=AppConfig.COLOR_SEARCH, linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
                 self.update_vbm_candidates_dropdown()
 
-            self.ax.legend(loc='upper left'); self.canvas.draw()
+            self.ax.legend(loc='upper left')
+            self.deactivate_selector()
+            self.canvas.draw()
         except Exception as e: messagebox.showerror("Calc Error", str(e))
 
     def update_vbm_candidates_dropdown(self):
@@ -870,7 +874,9 @@ class BaSALA_App(ctk.CTk):
             ip = hv - abs(e_cutoff - e_onset)
             self.lbl_res_wf.configure(text=f"WF (Φ): {wf:.3f} eV")
             self.lbl_res_ip.configure(text=f"IP: {ip:.3f} eV")
-            self.ax.legend(loc='upper left'); self.canvas.draw()
+            self.ax.legend(loc='upper left')
+            self.deactivate_selector()
+            self.canvas.draw()
         except Exception as e: messagebox.showerror("Calc Error", str(e))
 
     def draw_ups_result(self, x, y, label, color, align="right"):
@@ -901,6 +907,7 @@ class BaSALA_App(ctk.CTk):
             self.lbl_res_lumo.configure(text=f"LUMO: {lumo_x:.3f} eV")
 
             self.ax.legend(loc='upper left')
+            self.deactivate_selector()
             self.canvas.draw()
         except Exception as e: messagebox.showerror("Calc Error", str(e))
 
@@ -926,6 +933,7 @@ class BaSALA_App(ctk.CTk):
             self.lbl_res_vl.configure(text=f"Vacuum Level: {vl_x:.3f} eV")
 
             self.ax.legend(loc='upper left')
+            self.deactivate_selector()
             self.canvas.draw()
         except Exception as e: messagebox.showerror("Calc Error", str(e))
 
