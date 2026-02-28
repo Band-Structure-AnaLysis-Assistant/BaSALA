@@ -17,6 +17,7 @@ from dataclasses import dataclass
 # 0. リソースパス管理
 # ==========================================
 def resource_path(relative_path):
+    # PyInstallerでexe化した時と、通常のpyスクリプト実行時のパスのズレを吸収する関数
     try:
         base_path = sys._MEIPASS
     except Exception:
@@ -33,7 +34,7 @@ ctk.set_default_color_theme("dark-blue")
 class AppConfig:
     # --- アプリ全体設定 ---
     APP_NAME: str = "BaSALA - Band Structure AnaLysis Assistant"
-    VERSION: str = "v1.1.0"
+    VERSION: str = "v1.2.0"
     WINDOW_SIZE: str = "1280x900"
     SIDEBAR_WIDTH: int = 280
     
@@ -52,7 +53,7 @@ class AppConfig:
     UI_COLOR_BASE: str = "#5DADE2"  # Light Blue
     UI_COLOR_SLOPE: str = "#F1948A" # Light Red
     UI_COLOR_PEAK: str = "#82E0AA"  # Light Green
-    UI_COLOR_SEARCH: str = "#F1C40F" # 探索範囲用
+    UI_COLOR_SEARCH: str = "#F1C40F"# Yellow
     UI_COLOR_RESULT: str = "#F39C12"# Orange
     UI_COLOR_BTN: str = "#1f538d"   # 統一ボタンカラー
     
@@ -73,12 +74,15 @@ class AppConfig:
 # 2. 数学・物理計算用 関数群
 # ==========================================
 def linear_func(x, a, b):
+    # 1次関数（直線）の式
     return a * x + b
 
 def gaussian_func(x, a, mu, sigma, c):
+    # ガウス関数（ピーク形状）の式
     return a * np.exp(-(x - mu)**2 / (2 * sigma**2)) + c
 
 def calculate_shirley_bg(x, y, tol=1e-5, max_iters=50):
+    # XPSなどのスペクトルに対して、Shirley法によるバックグラウンドを計算する
     sorted_indices = np.argsort(x)
     x_sorted = x[sorted_indices]
     y_sorted = y[sorted_indices]
@@ -109,6 +113,7 @@ def calculate_shirley_bg(x, y, tol=1e-5, max_iters=50):
 # 3. GUI コンポーネント
 # ==========================================
 class DataSelectionDialog(ctk.CTkToplevel):
+    # MultiPakのデータなどを読み込んだ際に、どの領域(Region)を開くか選ぶダイアログ
     def __init__(self, parent, data_blocks, callback):
         super().__init__(parent)
         self.title("Select Data")
@@ -166,7 +171,7 @@ class BaSALA_App(ctk.CTk):
         try: self.iconbitmap(resource_path("app_icon.ico"))
         except: pass
 
-        # Data variables
+        # グラフ用のデータ変数
         self.energy = None
         self.intensity = None
         self.intensity_corrected = None
@@ -174,9 +179,14 @@ class BaSALA_App(ctk.CTk):
         self.span = None
         self.selection_mode = None
         
-        # Contexts
+        # 解析モードごとのコンテキスト（候補リストなど）
         self.vbm_candidates = []; self.vbm_context = {}
         self.bg_candidates = []; self.bg_context = {}
+
+        # 各種解析結果を一時保存するための辞書（ここに数値を記憶させます）
+        self.analysis_results = {
+            'WF': None, 'IP': None, 'HOMO': None, 'LUMO': None, 'VL': None
+        }
 
         self._create_sidebar()
         self._create_main_area()
@@ -185,7 +195,7 @@ class BaSALA_App(ctk.CTk):
     # UI Creation Helpers
     # -------------------------------------------------------------------------
     def _create_range_selector(self, parent, label_text, selector_mode, text_color="white"):
-        """ラベル + [Entry - Entry] + Selectボタン のセットを作成 (色指定追加)"""
+        """ラベル + [Entry - Entry] + Selectボタン のセットを作成"""
         ctk.CTkLabel(parent, text=label_text, font=("Roboto", 12, "bold"), text_color=text_color).pack(anchor="w", padx=2, pady=(5, 0))
         frame = ctk.CTkFrame(parent, fg_color="transparent")
         frame.pack(fill="x", padx=2)
@@ -220,20 +230,23 @@ class BaSALA_App(ctk.CTk):
         self.chk_shirley = ctk.CTkCheckBox(self.common_frame, text="Apply Shirley BG", variable=self.chk_shirley_var, command=self.on_shirley_toggle)
         self.chk_shirley.pack(padx=10, pady=10, anchor="w")
 
+        # タブの作成
         self.tabview = ctk.CTkTabview(self.sidebar, width=AppConfig.SIDEBAR_WIDTH - 20)
         self.tabview.pack(padx=10, pady=10, fill="both", expand=True)
         
-        self.tab_bg = self.tabview.add("Band Gap")
+        self.tab_bg = self.tabview.add("XPS")
         self.tab_vbm = self.tabview.add("VBM")
         self.tab_ups = self.tabview.add("UPS")
         self.tab_leips = self.tabview.add("LEIPS")
         self.tab_leet = self.tabview.add("LEET")
+        self.tab_summary = self.tabview.add("Summary")
 
         self._init_bandgap_tab()
         self._init_vbm_tab()
         self._init_ups_tab()
         self._init_leips_tab()
         self._init_leet_tab()
+        self._init_summary_tab()
 
     def _init_bandgap_tab(self):
         frame = ctk.CTkFrame(self.tab_bg, fg_color="transparent")
@@ -243,7 +256,7 @@ class BaSALA_App(ctk.CTk):
         self.seg_bg_mode = ctk.CTkSegmentedButton(frame, values=["Linear", "Deriv", "Hybrid"], variable=self.bg_mode_var, command=self.update_bg_ui)
         self.seg_bg_mode.pack(pady=10, padx=5, fill="x")
         self.seg_bg_mode.set("Linear")
-
+        
         self.bg_peak_min, self.bg_peak_max = self._create_range_selector(frame, "1. Main Peak (Eg Reference):", "bg_peak", text_color=AppConfig.UI_COLOR_PEAK)
         
         self.bg_input_container = ctk.CTkFrame(frame, fg_color="transparent")
@@ -368,11 +381,12 @@ class BaSALA_App(ctk.CTk):
         frame = ctk.CTkFrame(self.tab_leet, fg_color="transparent")
         frame.pack(fill="both", expand=True)
 
-        ctk.CTkLabel(frame, text="Vacuum Level Analysis (Inflection Point):", font=("Roboto", 12, "bold")).pack(anchor="w", pady=(5, 0))
+        ctk.CTkLabel(frame, text="Vacuum Level Analysis (Inflection):", font=("Roboto", 12, "bold")).pack(anchor="w", pady=(5, 0))
         
         self.frame_leet = ctk.CTkFrame(frame, fg_color="transparent")
         self.frame_leet.pack(fill="x", pady=5)
         
+        # 1つの探索範囲（Search Region）を選択させるUIに変更
         self.entry_leet_single_min, self.entry_leet_single_max = self._create_range_selector(
             self.frame_leet, "1. Search Region:", "leet_single", text_color=AppConfig.UI_COLOR_SEARCH
         )
@@ -385,6 +399,38 @@ class BaSALA_App(ctk.CTk):
         self.frame_leet_res.pack(pady=5, fill="x")
         self.lbl_res_vl = ctk.CTkLabel(self.frame_leet_res, text="Vacuum Level: --- eV", font=ctk.CTkFont(size=18, weight="bold"), text_color=AppConfig.UI_COLOR_RESULT)
         self.lbl_res_vl.pack()
+
+    def _init_summary_tab(self):
+        # 総合結果（バンドギャップ算出など）を表示するタブ
+        frame = ctk.CTkFrame(self.tab_summary, fg_color="transparent")
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        ctk.CTkLabel(frame, text="[ Saved Parameters ]", font=("Roboto", 14, "bold")).pack(anchor="w", pady=(0, 10))
+        
+        self.lbl_sum_wf = ctk.CTkLabel(frame, text="Work Function (Φ): --- eV", font=("Roboto", 12))
+        self.lbl_sum_wf.pack(anchor="w", pady=2)
+        
+        self.lbl_sum_ip = ctk.CTkLabel(frame, text="Ionization Potential (IP): --- eV", font=("Roboto", 12))
+        self.lbl_sum_ip.pack(anchor="w", pady=2)
+
+        self.lbl_sum_homo = ctk.CTkLabel(frame, text="HOMO Onset (Fermi ref): --- eV", font=("Roboto", 12))
+        self.lbl_sum_homo.pack(anchor="w", pady=2)
+        
+        self.lbl_sum_lumo = ctk.CTkLabel(frame, text="LUMO Onset (Fermi ref): --- eV", font=("Roboto", 12))
+        self.lbl_sum_lumo.pack(anchor="w", pady=2)
+        
+        self.lbl_sum_vl = ctk.CTkLabel(frame, text="Vacuum Level (LEET): --- eV", font=("Roboto", 12))
+        self.lbl_sum_vl.pack(anchor="w", pady=2)
+
+        ctk.CTkFrame(frame, height=2, fg_color="gray").pack(fill="x", pady=15)
+        
+        ctk.CTkLabel(frame, text="[ Calculated Gap ]", font=("Roboto", 14, "bold")).pack(anchor="w", pady=(0, 10))
+        
+        self.lbl_sum_gap = ctk.CTkLabel(frame, text="Transport Gap (Eg): --- eV", 
+                                        font=ctk.CTkFont(size=18, weight="bold"), text_color=AppConfig.UI_COLOR_RESULT)
+        self.lbl_sum_gap.pack(anchor="center", pady=10)
+        
+        ctk.CTkButton(frame, text="Clear Memory", command=self.clear_summary, fg_color="gray").pack(side="bottom", pady=20)
 
     def _create_main_area(self):
         self.main_frame = ctk.CTkFrame(self)
@@ -401,6 +447,7 @@ class BaSALA_App(ctk.CTk):
         self.toolbar.update()
 
     def update_bg_ui(self, value):
+        # 解析モードによって入力欄を出し入れする
         if value in ["Linear", "Hybrid"]:
             self.frame_bg_single.pack_forget(); self.frame_bg_linear.pack(fill="x", pady=5)
         else:
@@ -415,6 +462,35 @@ class BaSALA_App(ctk.CTk):
             self.frame_vbm_linear.pack_forget(); self.frame_vbm_single.pack(fill="x", pady=5)
         if value == "Linear": self.combo_vbm_candidates.pack_forget()
         else: self.combo_vbm_candidates.pack()
+
+    def update_summary_ui(self):
+        # 保存された値を読み込んで文字を書き換える
+        res = self.analysis_results
+        
+        if res['WF'] is not None: self.lbl_sum_wf.configure(text=f"Work Function (Φ): {res['WF']:.3f} eV")
+        if res['IP'] is not None: self.lbl_sum_ip.configure(text=f"Ionization Potential (IP): {res['IP']:.3f} eV")
+        if res['HOMO'] is not None: self.lbl_sum_homo.configure(text=f"HOMO Onset (Fermi ref): {res['HOMO']:.3f} eV")
+        if res['LUMO'] is not None: self.lbl_sum_lumo.configure(text=f"LUMO Onset (Fermi ref): {res['LUMO']:.3f} eV")
+        if res['VL'] is not None: self.lbl_sum_vl.configure(text=f"Vacuum Level (LEET): {res['VL']:.3f} eV")
+
+        # HOMOとLUMOの両方が揃っていたら、Transport Gapを計算して表示する
+        # （フェルミ準位を基準とした時の差分の絶対値をギャップとしています）
+        if res['HOMO'] is not None and res['LUMO'] is not None:
+            gap = abs(res['LUMO'] - res['HOMO'])
+            self.lbl_sum_gap.configure(text=f"Transport Gap (Eg): {gap:.3f} eV")
+        else:
+            self.lbl_sum_gap.configure(text="Transport Gap (Eg): --- eV")
+
+    def clear_summary(self):
+        # 一時保存データをリセットする
+        self.analysis_results = {'WF': None, 'IP': None, 'HOMO': None, 'LUMO': None, 'VL': None}
+        self.lbl_sum_wf.configure(text="Work Function (Φ): --- eV")
+        self.lbl_sum_ip.configure(text="Ionization Potential (IP): --- eV")
+        self.lbl_sum_homo.configure(text="HOMO Onset (Fermi ref): --- eV")
+        self.lbl_sum_lumo.configure(text="LUMO Onset (Fermi ref): --- eV")
+        self.lbl_sum_vl.configure(text="Vacuum Level (LEET): --- eV")
+        self.lbl_sum_gap.configure(text="Transport Gap (Eg): --- eV")
+        messagebox.showinfo("Memory Cleared", "Saved parameters have been reset.")
 
     # ==========================================
     # 5. 操作ロジック
@@ -448,6 +524,7 @@ class BaSALA_App(ctk.CTk):
         self.ax.set_ylim(y_min_curr - margin, y_max_raw + margin)
 
     def activate_selector(self, mode):
+        # グラフツールとの競合を防ぐ
         if self.toolbar.mode:
             if 'zoom' in self.toolbar.mode: self.toolbar.zoom()
             elif 'pan' in self.toolbar.mode: self.toolbar.pan()
@@ -467,11 +544,13 @@ class BaSALA_App(ctk.CTk):
         self.canvas.draw()
 
     def deactivate_selector(self):
+        # 範囲選択ツールをオフにする
         if self.span: self.span.set_visible(False); self.span = None
         self.selection_mode = None
         self.canvas.draw()
 
     def on_select(self, vmin, vmax):
+        # グラフ上でドラッグして範囲を選択した時に呼ばれる関数
         min_val, max_val = sorted([vmin, vmax])
         v_min, v_max = f"{min_val:.2f}", f"{max_val:.2f}"
         
@@ -515,7 +594,6 @@ class BaSALA_App(ctk.CTk):
         if not file_path: return
         try:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                # ★修正1：ファイルが50行未満でも StopIteration エラーで落ちないように安全に読み込む
                 head_lines = []
                 for i, line in enumerate(f):
                     if i >= 50: break
@@ -526,7 +604,6 @@ class BaSALA_App(ctk.CTk):
         except Exception as e: messagebox.showerror("Error", f"Failed to open file: {e}")
 
     def _load_multipak(self, file_path):
-        # ★修正2：ユーザーが選んだ区切り文字（TabやSpace）をMultiPakでも適用する
         sep = {", (Comma)": ",", "\\t (Tab)": "\t", "Space": r"\s+"}[self.sep_option.get()]
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f: lines = f.readlines()
         data_blocks = {}
@@ -536,20 +613,18 @@ class BaSALA_App(ctk.CTk):
             if not region_name or region_name == "no area description": region_name = f"Region {i+1}"
             end_idx = max(start_idx, header_indices[i+1]-4) if i < len(header_indices)-1 else len(lines)
             try:
-                # ★修正3：on_bad_lines='skip' を追加し、データ以外のノイズ行があっても無視して読み込む
                 df = pd.read_csv(StringIO("".join(lines[start_idx:end_idx])), sep=sep, engine='python', on_bad_lines='skip')
                 original_name = region_name; counter = 2
                 while region_name in data_blocks: region_name = f"{original_name}_{counter}"; counter += 1
                 data_blocks[region_name] = df
             except Exception as e: 
-                print(f"MultiPak Parse Error ({region_name}): {e}") # デバッグ用にエラーを出力して次に進む
+                print(f"MultiPak Parse Error ({region_name}): {e}")
                 pass
         if not data_blocks: return messagebox.showerror("Error", "Could not parse MultiPak format.")
         DataSelectionDialog(self, data_blocks, self._on_data_loaded)
 
     def _load_normal_csv(self, file_path):
         sep = {", (Comma)": ",", "\\t (Tab)": "\t", "Space": r"\s+"}[self.sep_option.get()]
-        # 念のためこちらにも on_bad_lines='skip' を追加
         df = pd.read_csv(file_path, sep=sep, header=None, engine='python', on_bad_lines='skip')
         if df.shape[1] < 2: return messagebox.showerror("Error", "Invalid data format.")
         energy = pd.to_numeric(df.iloc[:, 0], errors='coerce').values
@@ -876,6 +951,13 @@ class BaSALA_App(ctk.CTk):
             self.ax.legend(loc='upper left')
             self.deactivate_selector()
             self.canvas.draw()
+            
+            # ★ 結果を一時保存してSummaryタブを更新する
+            self.analysis_results['WF'] = wf
+            self.analysis_results['IP'] = ip
+            self.analysis_results['HOMO'] = e_onset
+            self.update_summary_ui()
+            
         except Exception as e: messagebox.showerror("Calc Error", str(e))
 
     def draw_ups_result(self, x, y, label, color, align="right"):
@@ -908,6 +990,11 @@ class BaSALA_App(ctk.CTk):
             self.ax.legend(loc='upper left')
             self.deactivate_selector()
             self.canvas.draw()
+            
+            # ★ 結果を一時保存してSummaryタブを更新する
+            self.analysis_results['LUMO'] = lumo_x
+            self.update_summary_ui()
+            
         except Exception as e: messagebox.showerror("Calc Error", str(e))
 
     def calculate_leet(self):
@@ -916,48 +1003,43 @@ class BaSALA_App(ctk.CTk):
             y_data = self.get_current_intensity()
             self.plot_base_graph()
 
-            # 1. ユーザーが指定した探索範囲の数値を取得
             search_min = float(self.entry_leet_single_min.get())
             search_max = float(self.entry_leet_single_max.get())
             
-            # 2. 探索範囲内のデータだけを切り出す
             mask = (self.energy >= search_min) & (self.energy <= search_max)
             x_s = self.energy[mask]
             y_s = y_data[mask]
             
             if len(x_s) < 5:
-                raise ValueError("データポイントが少なすぎます。もう少し広い範囲を選択してください。")
+                raise ValueError("データポイントが少なすぎます。")
 
-            # 3. データを滑らかにする（ノイズの影響で微分の計算がおかしくなるのを防ぐため）
             w_len = min(21, len(y_s))
             if w_len % 2 == 0: w_len -= 1
             if w_len < 3: w_len = 3
             y_smooth = savgol_filter(y_s, window_length=w_len, polyorder=2)
             
-            # 4. 1次微分（傾き）を計算して、傾きが一番急な点（変曲点）を探す
-            # ※ 2次微分が0になる点は、1次微分の絶対値が最大になる点と同じです
             dy = np.gradient(y_smooth, x_s)
-            inflection_idx = np.argmax(np.abs(dy)) # 傾きが最も大きい場所の番号
+            inflection_idx = np.argmax(np.abs(dy))
             
             vl_x = x_s[inflection_idx]
             vl_y = y_smooth[inflection_idx]
             
-            # 5. グラフに結果を描画する
-            # 探索範囲を黄色（COLOR_SEARCH）で塗りつぶす
             self.ax.axvspan(search_min, search_max, color=AppConfig.COLOR_SEARCH, alpha=0.1, label='Search Region')
-            # 滑らかにした曲線を点線で描画
             self.ax.plot(x_s, y_smooth, color=AppConfig.COLOR_SEARCH, linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
             
-            # 変曲点（真空準位）をひし形（D）のオレンジマーカーで打つ
-            self.ax.plot(vl_x, vl_y, color=AppConfig.COLOR_RESULT, marker='D', markersize=10, zorder=6, label="Vacuum Level (Inflection)")
+            self.ax.plot(vl_x, vl_y, color=AppConfig.COLOR_RESULT, marker='D', markersize=10, zorder=6, label="Vacuum Level")
             self.ax.axvline(vl_x, color=AppConfig.COLOR_RESULT, linestyle=':', alpha=0.8)
             
-            # 6. 結果のテキストを更新
             self.lbl_res_vl.configure(text=f"Vacuum Level: {vl_x:.3f} eV")
 
             self.ax.legend(loc='upper left')
-            self.deactivate_selector()  # 計算後に選択ツールをオフにする
+            self.deactivate_selector()
             self.canvas.draw()
+            
+            # ★ 結果を一時保存してSummaryタブを更新する
+            self.analysis_results['VL'] = vl_x
+            self.update_summary_ui()
+            
         except Exception as e: messagebox.showerror("Calc Error", str(e))
 
     def on_closing(self):
