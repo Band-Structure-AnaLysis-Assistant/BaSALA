@@ -63,7 +63,7 @@ class AppConfig:
         'ups_cutoff_base': 'blue', 'ups_cutoff_slope': 'red',
         'ups_fermi_base': 'blue', 'ups_fermi_slope': 'red',
         'leips_base': 'blue', 'leips_slope': 'red',
-        'leet_base': 'blue', 'leet_slope': 'red'
+        'leet_single': 'yellow'
     }
 
     # --- 解析パラメータのデフォルト値 ---
@@ -368,13 +368,14 @@ class BaSALA_App(ctk.CTk):
         frame = ctk.CTkFrame(self.tab_leet, fg_color="transparent")
         frame.pack(fill="both", expand=True)
 
-        ctk.CTkLabel(frame, text="Vacuum Level Analysis:", font=("Roboto", 12, "bold")).pack(anchor="w", pady=(5, 0))
+        ctk.CTkLabel(frame, text="Vacuum Level Analysis (Inflection Point):", font=("Roboto", 12, "bold")).pack(anchor="w", pady=(5, 0))
         
         self.frame_leet = ctk.CTkFrame(frame, fg_color="transparent")
         self.frame_leet.pack(fill="x", pady=5)
         
-        self.entry_leet_base_min, self.entry_leet_base_max = self._create_range_selector(self.frame_leet, "1. Base Range (Flat):", "leet_base", text_color=AppConfig.UI_COLOR_BASE)
-        self.entry_leet_slope_min, self.entry_leet_slope_max = self._create_range_selector(self.frame_leet, "2. Slope Range (Current):", "leet_slope", text_color=AppConfig.UI_COLOR_SLOPE)
+        self.entry_leet_single_min, self.entry_leet_single_max = self._create_range_selector(
+            self.frame_leet, "1. Search Region:", "leet_single", text_color=AppConfig.UI_COLOR_SEARCH
+        )
 
         ctk.CTkButton(frame, text="Stop Selection", fg_color="transparent", border_width=1, height=24, command=self.deactivate_selector).pack(pady=10)
         self.calc_leet_btn = ctk.CTkButton(frame, text="Calculate Vacuum Level", command=self.calculate_leet, fg_color=AppConfig.UI_COLOR_BTN, state="disabled")
@@ -488,8 +489,7 @@ class BaSALA_App(ctk.CTk):
             'ups_fermi_slope': (self.entry_ups_fermi_slope_min, self.entry_ups_fermi_slope_max),
             'leips_base': (self.entry_leips_base_min, self.entry_leips_base_max),
             'leips_slope': (self.entry_leips_slope_min, self.entry_leips_slope_max),
-            'leet_base': (self.entry_leet_base_min, self.entry_leet_base_max),
-            'leet_slope': (self.entry_leet_slope_min, self.entry_leet_slope_max)
+            'leet_single': (self.entry_leet_single_min, self.entry_leet_single_max)
         }
         
         if self.selection_mode in entries:
@@ -579,8 +579,7 @@ class BaSALA_App(ctk.CTk):
         clear_entries(self.entry_ups_fermi_slope_min, self.entry_ups_fermi_slope_max)
         clear_entries(self.entry_leips_base_min, self.entry_leips_base_max)
         clear_entries(self.entry_leips_slope_min, self.entry_leips_slope_max)
-        clear_entries(self.entry_leet_base_min, self.entry_leet_base_max)
-        clear_entries(self.entry_leet_slope_min, self.entry_leet_slope_max)
+        clear_entries(self.entry_leet_single_min, self.entry_leet_single_max)
 
         self.chk_shirley_var.set(False); self.intensity_corrected = None; self.bg_data = None
         self.plot_base_graph()
@@ -917,23 +916,47 @@ class BaSALA_App(ctk.CTk):
             y_data = self.get_current_intensity()
             self.plot_base_graph()
 
-            v_bg = (float(self.entry_leet_base_min.get()), float(self.entry_leet_base_max.get()))
-            v_sl = (float(self.entry_leet_slope_min.get()), float(self.entry_leet_slope_max.get()))
+            # 1. ユーザーが指定した探索範囲の数値を取得
+            search_min = float(self.entry_leet_single_min.get())
+            search_max = float(self.entry_leet_single_max.get())
             
-            vl_x, vl_y, popt_bg, popt_sl = self._fit_and_intersect(y_data, v_bg, v_sl)
+            # 2. 探索範囲内のデータだけを切り出す
+            mask = (self.energy >= search_min) & (self.energy <= search_max)
+            x_s = self.energy[mask]
+            y_s = y_data[mask]
             
-            x_plot = np.linspace(min(self.energy), max(self.energy), 200)
-            self.ax.plot(x_plot, linear_func(x_plot, *popt_bg), color=AppConfig.COLOR_BASE, linestyle='--', alpha=0.8, label='Base Fit')
-            self.ax.plot(x_plot, linear_func(x_plot, *popt_sl), color=AppConfig.COLOR_SLOPE, linestyle='--', alpha=0.8, label='Slope Fit')
-            self.ax.axvspan(v_bg[0], v_bg[1], color=AppConfig.COLOR_BASE, alpha=0.1)
-            self.ax.axvspan(v_sl[0], v_sl[1], color=AppConfig.COLOR_SLOPE, alpha=0.1)
+            if len(x_s) < 5:
+                raise ValueError("データポイントが少なすぎます。もう少し広い範囲を選択してください。")
+
+            # 3. データを滑らかにする（ノイズの影響で微分の計算がおかしくなるのを防ぐため）
+            w_len = min(21, len(y_s))
+            if w_len % 2 == 0: w_len -= 1
+            if w_len < 3: w_len = 3
+            y_smooth = savgol_filter(y_s, window_length=w_len, polyorder=2)
             
-            self.ax.plot(vl_x, vl_y, color=AppConfig.COLOR_RESULT, marker='D', markersize=10, zorder=6, label="Vacuum Level")
+            # 4. 1次微分（傾き）を計算して、傾きが一番急な点（変曲点）を探す
+            # ※ 2次微分が0になる点は、1次微分の絶対値が最大になる点と同じです
+            dy = np.gradient(y_smooth, x_s)
+            inflection_idx = np.argmax(np.abs(dy)) # 傾きが最も大きい場所の番号
+            
+            vl_x = x_s[inflection_idx]
+            vl_y = y_smooth[inflection_idx]
+            
+            # 5. グラフに結果を描画する
+            # 探索範囲を黄色（COLOR_SEARCH）で塗りつぶす
+            self.ax.axvspan(search_min, search_max, color=AppConfig.COLOR_SEARCH, alpha=0.1, label='Search Region')
+            # 滑らかにした曲線を点線で描画
+            self.ax.plot(x_s, y_smooth, color=AppConfig.COLOR_SEARCH, linestyle=':', linewidth=2, alpha=0.8, label='Smoothed')
+            
+            # 変曲点（真空準位）をひし形（D）のオレンジマーカーで打つ
+            self.ax.plot(vl_x, vl_y, color=AppConfig.COLOR_RESULT, marker='D', markersize=10, zorder=6, label="Vacuum Level (Inflection)")
             self.ax.axvline(vl_x, color=AppConfig.COLOR_RESULT, linestyle=':', alpha=0.8)
+            
+            # 6. 結果のテキストを更新
             self.lbl_res_vl.configure(text=f"Vacuum Level: {vl_x:.3f} eV")
 
             self.ax.legend(loc='upper left')
-            self.deactivate_selector()
+            self.deactivate_selector()  # 計算後に選択ツールをオフにする
             self.canvas.draw()
         except Exception as e: messagebox.showerror("Calc Error", str(e))
 
